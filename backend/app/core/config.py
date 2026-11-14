@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     auth0_audience: str
     auth0_issuer: str
 
+    connection_encryption_key: str | None = None
+
     cors_origins: str = "http://localhost:3000"
 
     @property
