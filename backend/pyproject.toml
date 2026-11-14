@@ -26,5 +26,5 @@ dev = [
 line-length = 100
 target-version = "py311"
 
-[tool.setuptools]
-packages = ["app"]
+[tool.setuptools.packages.find]
+include = ["app*"]
