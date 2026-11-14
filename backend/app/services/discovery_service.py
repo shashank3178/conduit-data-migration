@@ -47,6 +47,9 @@ def _plain(value):
         return str(value)
     if isinstance(value, bytes):
         return value.hex()
+    # SQLAlchemy TypeEngine and SQL expression defaults are not JSON-native.
+    if value.__class__.__module__.startswith("sqlalchemy"):
+        return str(value)
     if isinstance(value, dict):
         return {str(k): _plain(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
