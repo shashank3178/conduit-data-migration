@@ -1,0 +1,15 @@
+services:
+  metadata-db:
+    image: postgres:16
+    container_name: conduit-metadata-db
+    environment:
+      POSTGRES_DB: conduit_metadata
+      POSTGRES_USER: conduit
+      POSTGRES_PASSWORD: conduit
+    ports:
+      - "5432:5432"
+    volumes:
+      - conduit_metadata_data:/var/lib/postgresql/data
+
+volumes:
+  conduit_metadata_data:
