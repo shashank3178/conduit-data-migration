@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
 import uuid
+from datetime import UTC, datetime
 
 import psycopg
 from fastapi import HTTPException
@@ -8,10 +8,9 @@ from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
 
 from app.models.connection import DatabaseConnection
-from app.models.discovery import DiscoverySnapshot, DiscoveredSchema, DiscoveredTable
+from app.models.discovery import DiscoveredSchema, DiscoveredTable, DiscoverySnapshot
 from app.models.user import User
 from app.services.connection_service import decrypt_password, get_connection
-
 
 SYSTEM_SCHEMAS = {"pg_catalog", "information_schema", "pg_toast"}
 
@@ -130,7 +129,7 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
             snapshot.status = "completed"
             snapshot.schema_count = schema_count
             snapshot.table_count = table_count
-            snapshot.discovered_at = datetime.now(timezone.utc)
+            snapshot.discovered_at = datetime.now(UTC)
             snapshot.error_message = None
             db.commit()
             db.refresh(snapshot)

@@ -1,6 +1,6 @@
-from app.models.user import User
-from app.models.project import Project
 from app.models.connection import DatabaseConnection
-from app.models.discovery import DiscoverySnapshot, DiscoveredSchema, DiscoveredTable
+from app.models.discovery import DiscoveredSchema, DiscoveredTable, DiscoverySnapshot
+from app.models.project import Project
+from app.models.user import User
 
-__all__ = ["User", "Project", "DatabaseConnection", "DiscoverySnapshot", "DiscoveredSchema", "DiscoveredTable"]
+__all__ = ["DatabaseConnection", "DiscoveredSchema", "DiscoveredTable", "DiscoverySnapshot", "Project", "User"]

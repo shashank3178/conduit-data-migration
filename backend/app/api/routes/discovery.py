@@ -5,7 +5,13 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
 from app.models.user import User
-from app.schemas.discovery import DiscoveryRunResponse, DiscoveryStatusResponse, SchemaResponse, TableSummaryResponse, TableDetailResponse
+from app.schemas.discovery import (
+    DiscoveryRunResponse,
+    DiscoveryStatusResponse,
+    SchemaResponse,
+    TableDetailResponse,
+    TableSummaryResponse,
+)
 from app.services import discovery_service
 
 router = APIRouter(prefix="/projects/{project_id}/connections/{connection_id}", tags=["Database discovery"])

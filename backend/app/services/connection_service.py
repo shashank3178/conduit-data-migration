@@ -1,6 +1,6 @@
+import psycopg
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException, status
-import psycopg
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
