@@ -1,0 +1,41 @@
+services:
+  source-db:
+    image: postgres:16
+    container_name: conduit-source-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: source_db
+      POSTGRES_USER: source_user
+      POSTGRES_PASSWORD: source_pass_123
+    ports:
+      - "5434:5432"
+    volumes:
+      - conduit_source_data:/var/lib/postgresql/data
+      - ./database-seed/source:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U source_user -d source_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  destination-db:
+    image: postgres:16
+    container_name: conduit-destination-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: destination_db
+      POSTGRES_USER: destination_user
+      POSTGRES_PASSWORD: destination_pass_123
+    ports:
+      - "5435:5432"
+    volumes:
+      - conduit_destination_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U destination_user -d destination_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  conduit_source_data:
+  conduit_destination_data:

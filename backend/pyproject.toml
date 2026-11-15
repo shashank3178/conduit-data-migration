@@ -28,3 +28,8 @@ target-version = "py311"
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.ruff.lint]
+ignore = [
+    "B008", # Allow function calls in argument defaults (needed for FastAPI Depends)
+]
