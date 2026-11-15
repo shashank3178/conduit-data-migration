@@ -3,7 +3,12 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from app.services.migration_ddl import build_ddl, normalize_pg_type, quote_identifier, types_compatible
+from app.services.migration_ddl import (
+    build_ddl,
+    normalize_pg_type,
+    quote_identifier,
+    types_compatible,
+)
 
 
 def test_postgres_type_normalization_and_compatibility():

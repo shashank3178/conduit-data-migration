@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_user, get_db
 from app.models.user import User
 from app.schemas.migration_plan import (
-    ColumnMappingsUpdate,
     ColumnMappingResponse,
+    ColumnMappingsUpdate,
     DDLPreviewResponse,
     MigrationPlanCreate,
     MigrationPlanResponse,
