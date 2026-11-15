@@ -14,6 +14,7 @@ _TYPE_PATTERN = re.compile(
     r"UUID|JSONB?|BYTEA|INET|CIDR|MACADDR|XML)(\[\])?$",
     re.IGNORECASE,
 )
+_RESERVED_SCHEMAS = {"PG_CATALOG", "INFORMATION_SCHEMA"}
 
 
 def quote_identifier(value: str) -> str:
@@ -55,13 +56,14 @@ def types_compatible(source: str | None, destination: str | None) -> bool:
     integer_rank = {"SMALLINT": 1, "INTEGER": 2, "BIGINT": 3}
     if src in integer_rank and dst in integer_rank:
         return integer_rank[dst] >= integer_rank[src]
-    numeric = {"REAL": 1, "DOUBLE PRECISION": 2}
-    if src in numeric and dst in numeric:
-        return numeric[dst] >= numeric[src]
+    numeric_rank = {"REAL": 1, "DOUBLE PRECISION": 2}
+    if src in numeric_rank and dst in numeric_rank:
+        return numeric_rank[dst] >= numeric_rank[src]
     if src.startswith("VARCHAR") and dst.startswith("VARCHAR"):
         def length(value: str) -> int | None:
             match = re.search(r"\((\d+)\)", value)
             return int(match.group(1)) if match else None
+
         source_length, destination_length = length(src), length(dst)
         return destination_length is None or (
             source_length is not None and destination_length >= source_length
@@ -85,6 +87,8 @@ def build_ddl(plan_tables, mappings_by_table, create_schemas: bool):
             continue
 
         schema = table.destination_schema
+        if schema.upper() in _RESERVED_SCHEMAS or schema.lower().startswith("pg_"):
+            raise HTTPException(status_code=422, detail="System PostgreSQL schemas cannot be created as migration targets.")
         target = f"{quote_identifier(schema)}.{quote_identifier(table.destination_table)}"
         if create_schemas:
             schemas.add(schema)
@@ -132,19 +136,19 @@ def build_ddl(plan_tables, mappings_by_table, create_schemas: bool):
                 f"Primary key for {table.source_schema}.{table.source_table} was omitted because not all key columns are mapped."
             )
 
-        statements.append(f"CREATE TABLE IF NOT EXISTS {target} (\n  " + ",\n  ".join(definitions) + "\n);")
+        statements.append(
+            f"CREATE TABLE IF NOT EXISTS {target} (\n  "
+            + ",\n  ".join(definitions)
+            + "\n);"
+        )
         tables_to_create += 1
-
-        if table.source_primary_key and table.source_primary_key.get("name"):
-            pass
         if table.destination_schema != table.source_schema:
             warnings.append(
                 f"Table {table.source_schema}.{table.source_table} is being mapped to {table.destination_schema}.{table.destination_table}."
             )
-        if table.source_table_type == "table":
-            warnings.append(
-                f"Foreign keys, check constraints, indexes, identity properties, and generated/default expressions are not included for {table.source_schema}.{table.source_table}; review them before a production migration."
-            )
+        warnings.append(
+            f"Foreign keys, unique/check constraints, indexes, identity properties, and generated/default expressions are not included for {table.source_schema}.{table.source_table}; review them before a production migration."
+        )
 
     schema_statements = [
         f"CREATE SCHEMA IF NOT EXISTS {quote_identifier(schema)};"
