@@ -341,13 +341,11 @@ def update_column_mappings(
     )
     for item in payload.mappings:
         source_type = str(source_columns[item.source_column].get("type") or "TEXT")
-        target_type = item.destination_type
         if table.destination_exists and item.destination_column:
             target = destination_columns.get(item.destination_column)
-            if target_type is None and target:
-                target_type = str(target.get("type") or source_type)
+            target_type = str(target.get("type") or source_type) if target else None
         else:
-            target_type = target_type or source_type
+            target_type = item.destination_type or source_type
 
         normalized_type = normalize_pg_type(target_type) if target_type else None
         if item.included and not table.destination_exists and not normalized_type:
