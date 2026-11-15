@@ -3,7 +3,6 @@ from datetime import UTC, datetime
 
 import psycopg
 from fastapi import HTTPException
-from requests import session
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
@@ -41,9 +40,9 @@ def _safe_error(exc: Exception) -> str:
 
 
 def _plain(value):
-    if isinstance(value, (datetime,)):
+    if isinstance(value, datetime):
         return value.isoformat()
-    if isinstance(value, (uuid.UUID,)):
+    if isinstance(value, uuid.UUID):
         return str(value)
     if isinstance(value, bytes):
         return value.hex()
@@ -68,7 +67,12 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
             schemas = sorted(inspector.get_schema_names())
             snapshot = db.query(DiscoverySnapshot).filter_by(connection_id=connection.id).first()
             if snapshot is None:
-                snapshot = DiscoverySnapshot(project_id=project_id, connection_id=connection.id, database_name=database_name, status="running")
+                snapshot = DiscoverySnapshot(
+                    project_id=project_id,
+                    connection_id=connection.id,
+                    database_name=database_name,
+                    status="running",
+                )
                 db.add(snapshot)
                 db.flush()
             else:
@@ -76,7 +80,9 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
                 snapshot.database_name = database_name
                 snapshot.server_version = server_version
                 snapshot.error_message = None
-                db.query(DiscoveredSchema).filter_by(snapshot_id=snapshot.id).delete(synchronize_session=False)
+                db.query(DiscoveredSchema).filter_by(snapshot_id=snapshot.id).delete(
+                    synchronize_session=False
+                )
                 db.flush()
 
             snapshot.server_version = server_version
@@ -84,51 +90,76 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
             table_count = 0
             for schema_name in schemas:
                 is_system = schema_name in SYSTEM_SCHEMAS or schema_name.startswith("pg_toast")
-                schema_record = DiscoveredSchema(snapshot_id=snapshot.id, name=schema_name, is_system=is_system)
+                schema_record = DiscoveredSchema(
+                    snapshot_id=snapshot.id,
+                    name=schema_name,
+                    is_system=is_system,
+                )
                 db.add(schema_record)
                 db.flush()
                 schema_count += 1
                 if is_system:
                     continue
-                # Tables and views are both surfaced, with type clearly identified.
+
                 table_names = inspector.get_table_names(schema=schema_name)
                 view_names = inspector.get_view_names(schema=schema_name)
-                materialized_views = []
-                materialized_views = session.execute(
-                    text("""
+                materialized_views = conn.execute(
+                    text(
+                        """
                         SELECT c.relname
                         FROM pg_class c
                         JOIN pg_namespace n ON n.oid = c.relnamespace
-                        WHERE n.nspname = :schema
-                        AND c.relkind = 'm'
-                    """),
-                    {"schema": schema_name}
+                        WHERE n.nspname = :schema AND c.relkind = 'm'
+                        """
+                    ),
+                    {"schema": schema_name},
                 ).scalars().all()
+
                 for table_name in sorted(set(table_names) | set(view_names) | set(materialized_views)):
-                    kind = "materialized_view" if table_name in materialized_views else ("view" if table_name in view_names else "table")
-                    columns = [_plain(c) for c in inspector.get_columns(table_name, schema=schema_name)]
-                    pk = _plain(inspector.get_pk_constraint(table_name, schema=schema_name) or {})
-                    fks = [_plain(x) for x in inspector.get_foreign_keys(table_name, schema=schema_name)]
-                    uniques = [_plain(x) for x in inspector.get_unique_constraints(table_name, schema=schema_name)]
-                    checks = [_plain(x) for x in inspector.get_check_constraints(table_name, schema=schema_name)]
-                    indexes = [_plain(x) for x in inspector.get_indexes(table_name, schema=schema_name)]
+                    if table_name in materialized_views:
+                        kind = "materialized_view"
+                    elif table_name in view_names:
+                        kind = "view"
+                    else:
+                        kind = "table"
+
+                    columns = [_plain(column) for column in inspector.get_columns(table_name, schema=schema_name)]
+                    primary_key = _plain(inspector.get_pk_constraint(table_name, schema=schema_name) or {})
+                    foreign_keys = [_plain(item) for item in inspector.get_foreign_keys(table_name, schema=schema_name)]
+                    unique_constraints = [_plain(item) for item in inspector.get_unique_constraints(table_name, schema=schema_name)]
+                    check_constraints = [_plain(item) for item in inspector.get_check_constraints(table_name, schema=schema_name)]
+                    indexes = [_plain(item) for item in inspector.get_indexes(table_name, schema=schema_name)]
                     comment = inspector.get_table_comment(table_name, schema=schema_name).get("text")
-                    # Approximate row count from planner statistics; no table scan.
-                    estimate = conn.execute(text("""
-                        SELECT COALESCE(s.n_live_tup, 0)::bigint
-                        FROM pg_stat_user_tables s
-                        JOIN pg_class c ON c.relname = s.relname
-                        JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = s.schemaname
-                        WHERE s.schemaname = :schema AND s.relname = :table
-                    """), {"schema": schema_name, "table": table_name}).scalar_one_or_none()
-                    db.add(DiscoveredTable(
-                        schema_id=schema_record.id, name=table_name, table_type=kind,
-                        estimated_rows=int(estimate) if estimate is not None else None,
-                        columns=columns, primary_key=pk, foreign_keys=fks,
-                        unique_constraints=uniques, check_constraints=checks,
-                        indexes=indexes, comment=comment,
-                    ))
+                    estimate = conn.execute(
+                        text(
+                            """
+                            SELECT COALESCE(s.n_live_tup, 0)::bigint
+                            FROM pg_stat_user_tables s
+                            JOIN pg_class c ON c.relname = s.relname
+                            JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = s.schemaname
+                            WHERE s.schemaname = :schema AND s.relname = :table
+                            """
+                        ),
+                        {"schema": schema_name, "table": table_name},
+                    ).scalar_one_or_none()
+
+                    db.add(
+                        DiscoveredTable(
+                            schema_id=schema_record.id,
+                            name=table_name,
+                            table_type=kind,
+                            estimated_rows=int(estimate) if estimate is not None else None,
+                            columns=columns,
+                            primary_key=primary_key,
+                            foreign_keys=foreign_keys,
+                            unique_constraints=unique_constraints,
+                            check_constraints=check_constraints,
+                            indexes=indexes,
+                            comment=comment,
+                        )
+                    )
                     table_count += 1
+
             snapshot.status = "completed"
             snapshot.schema_count = schema_count
             snapshot.table_count = table_count
@@ -151,7 +182,9 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
 
 def get_snapshot(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid.UUID) -> DiscoverySnapshot:
     get_connection(db, user, project_id, connection_id)
-    snapshot = db.query(DiscoverySnapshot).filter_by(project_id=project_id, connection_id=connection_id).first()
+    snapshot = db.query(DiscoverySnapshot).filter_by(
+        project_id=project_id, connection_id=connection_id
+    ).first()
     if snapshot is None:
         raise HTTPException(status_code=404, detail="No discovery has been run for this connection.")
     return snapshot
@@ -159,30 +192,80 @@ def get_snapshot(db: Session, user: User, project_id: uuid.UUID, connection_id: 
 
 def list_schemas(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid.UUID):
     snapshot = get_snapshot(db, user, project_id, connection_id)
-    rows = db.query(DiscoveredSchema).filter_by(snapshot_id=snapshot.id).order_by(DiscoveredSchema.name).all()
-    return [{
-        "id": row.id, "name": row.name, "is_system": row.is_system,
-        "table_count": db.query(DiscoveredTable).filter_by(schema_id=row.id).count()
-    } for row in rows]
+    rows = db.query(DiscoveredSchema).filter_by(snapshot_id=snapshot.id).order_by(
+        DiscoveredSchema.name
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "name": row.name,
+            "is_system": row.is_system,
+            "table_count": db.query(DiscoveredTable).filter_by(schema_id=row.id).count(),
+        }
+        for row in rows
+    ]
 
 
-def list_tables(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid.UUID, schema_name: str | None = None):
+def list_tables(
+    db: Session,
+    user: User,
+    project_id: uuid.UUID,
+    connection_id: uuid.UUID,
+    schema_name: str | None = None,
+):
     snapshot = get_snapshot(db, user, project_id, connection_id)
-    query = db.query(DiscoveredTable, DiscoveredSchema.name).join(DiscoveredSchema).filter(DiscoveredSchema.snapshot_id == snapshot.id)
+    query = (
+        db.query(DiscoveredTable, DiscoveredSchema.name)
+        .join(DiscoveredSchema)
+        .filter(DiscoveredSchema.snapshot_id == snapshot.id)
+    )
     if schema_name:
         query = query.filter(DiscoveredSchema.name == schema_name)
-    return [{"id": t.id, "schema_name": s, "name": t.name, "table_type": t.table_type, "estimated_rows": t.estimated_rows} for t, s in query.order_by(DiscoveredSchema.name, DiscoveredTable.name).all()]
+    return [
+        {
+            "id": table.id,
+            "schema_name": schema,
+            "name": table.name,
+            "table_type": table.table_type,
+            "estimated_rows": table.estimated_rows,
+        }
+        for table, schema in query.order_by(DiscoveredSchema.name, DiscoveredTable.name).all()
+    ]
 
 
-def get_table(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid.UUID, table_id: uuid.UUID):
+def get_table(
+    db: Session,
+    user: User,
+    project_id: uuid.UUID,
+    connection_id: uuid.UUID,
+    table_id: uuid.UUID,
+):
     get_snapshot(db, user, project_id, connection_id)
-    result = db.query(DiscoveredTable, DiscoveredSchema.name).join(DiscoveredSchema).join(DiscoverySnapshot).filter(
-        DiscoverySnapshot.project_id == project_id, DiscoverySnapshot.connection_id == connection_id, DiscoveredTable.id == table_id
-    ).first()
+    result = (
+        db.query(DiscoveredTable, DiscoveredSchema.name)
+        .join(DiscoveredSchema)
+        .join(DiscoverySnapshot)
+        .filter(
+            DiscoverySnapshot.project_id == project_id,
+            DiscoverySnapshot.connection_id == connection_id,
+            DiscoveredTable.id == table_id,
+        )
+        .first()
+    )
     if result is None:
         raise HTTPException(status_code=404, detail="Discovered table not found.")
     table, schema_name = result
-    return {"id": table.id, "schema_name": schema_name, "name": table.name, "table_type": table.table_type,
-        "estimated_rows": table.estimated_rows, "columns": table.columns, "primary_key": table.primary_key,
-        "foreign_keys": table.foreign_keys, "unique_constraints": table.unique_constraints,
-        "check_constraints": table.check_constraints, "indexes": table.indexes, "comment": table.comment}
+    return {
+        "id": table.id,
+        "schema_name": schema_name,
+        "name": table.name,
+        "table_type": table.table_type,
+        "estimated_rows": table.estimated_rows,
+        "columns": table.columns,
+        "primary_key": table.primary_key,
+        "foreign_keys": table.foreign_keys,
+        "unique_constraints": table.unique_constraints,
+        "check_constraints": table.check_constraints,
+        "indexes": table.indexes,
+        "comment": table.comment,
+    }
