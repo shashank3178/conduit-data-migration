@@ -386,8 +386,22 @@ def validate_plan(db: Session, plan: MigrationPlan):
     if not selected:
         errors.append("Select at least one source table.")
 
+    destination_schema_names = {
+        name
+        for (name,) in db.query(DiscoveredSchema.name)
+        .filter_by(snapshot_id=plan.destination_snapshot_id)
+        .all()
+    }
     targets: set[tuple[str, str]] = set()
     for table in selected:
+        if (
+            not plan.create_schemas
+            and not table.destination_exists
+            and table.destination_schema not in destination_schema_names
+        ):
+            errors.append(
+                f"Destination schema '{table.destination_schema}' does not exist. Enable schema creation or choose an existing schema."
+            )
         target_key = (table.destination_schema, table.destination_table)
         if target_key in targets:
             errors.append(
