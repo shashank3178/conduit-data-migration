@@ -41,7 +41,7 @@ def test_ddl_preview_generates_schema_table_and_primary_key():
             SimpleNamespace(source_column="email", destination_column="email", destination_type="VARCHAR(120)", source_type="VARCHAR(120)", included=True),
         ]
     }
-    statements, warnings, count, schemas = build_ddl([table], mappings, True)
+    statements, _, count, schemas = build_ddl([table], mappings, True)
     assert statements[0] == 'CREATE SCHEMA IF NOT EXISTS "public";'
     assert 'CREATE TABLE "public"."customers_copy"' in statements[1]
     assert 'PRIMARY KEY ("id")' in statements[1]
