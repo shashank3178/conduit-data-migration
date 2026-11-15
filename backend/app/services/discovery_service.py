@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 import psycopg
 from fastapi import HTTPException
+from requests import session
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
@@ -93,14 +94,16 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
                 table_names = inspector.get_table_names(schema=schema_name)
                 view_names = inspector.get_view_names(schema=schema_name)
                 materialized_views = []
-                try:
-                    materialized_views = conn.execute(text("""
-                        SELECT c.relname FROM pg_class c
+                materialized_views = session.execute(
+                    text("""
+                        SELECT c.relname
+                        FROM pg_class c
                         JOIN pg_namespace n ON n.oid = c.relnamespace
-                        WHERE n.nspname = :schema AND c.relkind = 'm'
-                    """), {"schema": schema_name}).scalars().all()
-                except Exception:
-                    materialized_views = []
+                        WHERE n.nspname = :schema
+                        AND c.relkind = 'm'
+                    """),
+                    {"schema": schema_name}
+                ).scalars().all()
                 for table_name in sorted(set(table_names) | set(view_names) | set(materialized_views)):
                     kind = "materialized_view" if table_name in materialized_views else ("view" if table_name in view_names else "table")
                     columns = [_plain(c) for c in inspector.get_columns(table_name, schema=schema_name)]
