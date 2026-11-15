@@ -34,10 +34,10 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["owner_id"], ["users.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["source_connection_id"], ["database_connections.id"], ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["destination_connection_id"], ["database_connections.id"], ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["source_snapshot_id"], ["discovery_snapshots.id"], ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["destination_snapshot_id"], ["discovery_snapshots.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(["source_connection_id"], ["database_connections.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["destination_connection_id"], ["database_connections.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["source_snapshot_id"], ["discovery_snapshots.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["destination_snapshot_id"], ["discovery_snapshots.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_migration_plans_project_owner", "migration_plans", ["project_id", "owner_id"])
