@@ -249,14 +249,25 @@ def update_table_selection(db: Session, plan: MigrationPlan, payload: TableSelec
             row.destination_schema != item.destination_schema
             or row.destination_table != item.destination_table
         )
+        # Preserve a table created by this plan even if the original destination
+        # discovery snapshot predates the CREATE TABLE operation.
+        already_prepared_target = target is None and not target_changed and row.destination_exists
+        target_state_changed = row.destination_exists != (target is not None) and not already_prepared_target
+        target_id_changed = target is not None and row.destination_table_id != target.id
+
         row.selected = item.selected
         row.destination_schema = item.destination_schema
         row.destination_table = item.destination_table
-        row.destination_exists = target is not None
-        row.destination_table_id = target.id if target is not None else None
-        row.destination_columns = target.columns if target is not None else []
+        if target is not None:
+            row.destination_exists = True
+            row.destination_table_id = target.id
+            row.destination_columns = target.columns or []
+        elif not already_prepared_target:
+            row.destination_exists = False
+            row.destination_table_id = None
+            row.destination_columns = []
 
-        if target_changed or target is not None:
+        if target_changed or target_state_changed or target_id_changed:
             db.query(MigrationColumnMapping).filter_by(plan_table_id=row.id).delete(
                 synchronize_session=False
             )
