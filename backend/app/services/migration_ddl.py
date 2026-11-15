@@ -137,7 +137,7 @@ def build_ddl(plan_tables, mappings_by_table, create_schemas: bool):
             )
 
         statements.append(
-            f"CREATE TABLE IF NOT EXISTS {target} (\n  "
+            f"CREATE TABLE {target} (\n  "
             + ",\n  ".join(definitions)
             + "\n);"
         )
