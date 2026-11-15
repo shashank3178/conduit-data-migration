@@ -427,6 +427,7 @@ def validate_plan(db: Session, plan: MigrationPlan):
             )
         if table.destination_exists:
             target_columns = _columns_by_name(table.destination_columns or [])
+            mapped_target_names = {item.destination_column for item in included}
             for item in included:
                 if item.destination_column not in target_columns:
                     errors.append(
@@ -435,6 +436,13 @@ def validate_plan(db: Session, plan: MigrationPlan):
                 elif not item.compatible:
                     warnings.append(
                         f"Type conversion may be required for {table.source_schema}.{table.source_table}.{item.source_column}."
+                    )
+            for target_name, target_column in target_columns.items():
+                generated = target_column.get("identity") or target_column.get("computed")
+                required = not target_column.get("nullable", True) and target_column.get("default") is None
+                if required and not generated and target_name not in mapped_target_names:
+                    errors.append(
+                        f"Required destination column {table.destination_schema}.{table.destination_table}.{target_name} is not mapped and has no default."
                     )
         else:
             for item in included:
