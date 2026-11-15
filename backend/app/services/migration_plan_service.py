@@ -387,7 +387,7 @@ def validate_plan(db: Session, plan: MigrationPlan):
     destination_schema_names = {
         name
         for (name,) in db.query(DiscoveredSchema.name)
-        .filter_by(snapshot_id=plan.destination_snapshot_id)
+        .filter(DiscoveredSchema.snapshot_id == plan.destination_snapshot_id)
         .all()
     }
     targets: set[tuple[str, str]] = set()
