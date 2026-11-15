@@ -18,7 +18,7 @@ _RESERVED_SCHEMAS = {"PG_CATALOG", "INFORMATION_SCHEMA"}
 
 
 def quote_identifier(value: str) -> str:
-    if not value or len(value) > _IDENTIFIER_MAX or "\x00" in value:
+    if not value or len(value.encode("utf-8")) > _IDENTIFIER_MAX or "\x00" in value:
         raise HTTPException(status_code=422, detail="Invalid PostgreSQL identifier in migration plan.")
     return '"' + value.replace('"', '""') + '"'
 
