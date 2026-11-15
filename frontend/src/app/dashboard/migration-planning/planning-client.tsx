@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   applyDestinationDDL,
   createMigrationPlan,
@@ -82,21 +82,13 @@ export default function MigrationPlanningClient({
     setDestinationId(data.connections.find((item: Connection) => item.role === "destination")?.id ?? "");
   }
 
-  useEffect(() => {
-    if (!projectId || projectId === projects[0]?.id) return;
-    setBusy(true);
-    refreshPlansAndConnections(projectId)
-      .catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to load project data."))
-      .finally(() => setBusy(false));
-  }, [projectId]);
-
-  async function run<T>(work: () => Promise<T>, success?: (result: T) => void) {
+  async function run<T>(work: () => Promise<T>, success?: (result: T) => void | Promise<void>) {
     setBusy(true);
     setError("");
     setNotice("");
     try {
       const result = await work();
-      success?.(result);
+      await success?.(result);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The request failed.");
     } finally {
@@ -236,13 +228,13 @@ export default function MigrationPlanningClient({
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <label className="text-sm font-medium text-slate-700">
             Project
-            <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5">
+            <select value={projectId} onChange={(event) => { const nextId = event.target.value; setProjectId(nextId); setBusy(true); setError(""); refreshPlansAndConnections(nextId).catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to load project data.")).finally(() => setBusy(false)); }} className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5">
               {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
             </select>
           </label>
           <label className="text-sm font-medium text-slate-700">
             Existing migration plan
-            <select value={planId} onChange={(event) => openPlan(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5">
+            <select value={planId} onChange={(event) => { const nextId = event.target.value; if (nextId) openPlan(nextId); else { setPlanId(""); setTables([]); setActiveTableId(""); setValidation(null); setDdl(null); } }} className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5">
               <option value="">Create a new plan…</option>
               {plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · {plan.status}</option>)}
             </select>
