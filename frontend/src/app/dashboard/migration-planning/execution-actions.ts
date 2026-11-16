@@ -43,7 +43,7 @@ export async function getMigrationRunReport(projectId: string, planId: string, r
 }
 export async function downloadMigrationRunCsv(projectId: string, planId: string, runId: string) {
   const accessToken = await token();
-  const base = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1").replace(/\\/+$/, "");
+    const base = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1").replace(/\/+$/, "");
   const response = await fetch(`${base}/projects/${projectId}/migration-plans/${planId}/runs/${runId}/report.csv`, {
     headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store",
   });
