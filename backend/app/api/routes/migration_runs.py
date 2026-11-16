@@ -1,7 +1,10 @@
+import csv
+import io
 import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
@@ -102,6 +105,81 @@ def get_run_errors(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
 def get_run_events(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     _owned_run(db, user, project_id, plan_id, run_id)
     return db.query(MigrationRunEvent).filter_by(run_id=run_id).order_by(MigrationRunEvent.created_at).limit(10000).all()
+
+@router.get("/{run_id}/report")
+def get_run_report(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    run = _owned_run(db, user, project_id, plan_id, run_id)
+    tables = db.query(MigrationRunTable).filter_by(run_id=run.id).order_by(MigrationRunTable.source_schema, MigrationRunTable.source_table).all()
+    errors = db.query(MigrationRowError).filter_by(run_id=run.id).order_by(MigrationRowError.created_at).limit(5000).all()
+    events = db.query(MigrationRunEvent).filter_by(run_id=run.id).order_by(MigrationRunEvent.created_at).limit(10000).all()
+    return {
+        "run": {
+            "id": str(run.id), "status": run.status, "write_strategy": run.write_strategy,
+            "batch_size": run.batch_size, "total_rows": run.total_rows,
+            "inserted_rows": run.inserted_rows, "updated_rows": run.updated_rows,
+            "skipped_rows": run.skipped_rows, "failed_rows": run.failed_rows,
+            "validation_status": run.validation_status, "mismatch_rows": run.mismatch_rows,
+            "started_at": run.started_at.isoformat() if run.started_at else None,
+            "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        },
+        "tables": [{
+            "source": f"{t.source_schema}.{t.source_table}",
+            "destination": f"{t.destination_schema}.{t.destination_table}",
+            "status": t.status, "total_rows": t.total_rows,
+            "inserted_rows": t.inserted_rows, "updated_rows": t.updated_rows,
+            "skipped_rows": t.skipped_rows, "failed_rows": t.failed_rows,
+            "validation_status": t.validation_status, "mismatch_rows": t.mismatch_rows,
+        } for t in tables],
+        "row_errors": [{
+            "table": str(e.run_table_id), "source_key": e.source_key,
+            "error_type": e.error_type, "error_message": e.error_message,
+            "attempts": e.attempts, "created_at": e.created_at.isoformat(),
+            "resolved_at": e.resolved_at.isoformat() if e.resolved_at else None,
+        } for e in errors],
+        "events": [{
+            "event_type": e.event_type, "details": e.details,
+            "created_at": e.created_at.isoformat(),
+        } for e in events],
+    }
+
+
+@router.get("/{run_id}/report.csv")
+def download_run_report_csv(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    run = _owned_run(db, user, project_id, plan_id, run_id)
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=[
+        "record_type", "source", "destination", "status", "total_rows",
+        "inserted_rows", "updated_rows", "skipped_rows", "failed_rows",
+        "validation_status", "mismatch_rows", "source_key", "error_type", "error_message",
+    ])
+    writer.writeheader()
+    writer.writerow({
+        "record_type": "run", "status": run.status, "total_rows": run.total_rows,
+        "inserted_rows": run.inserted_rows, "updated_rows": run.updated_rows,
+        "skipped_rows": run.skipped_rows, "failed_rows": run.failed_rows,
+        "validation_status": run.validation_status, "mismatch_rows": run.mismatch_rows,
+    })
+    tables = db.query(MigrationRunTable).filter_by(run_id=run.id).order_by(MigrationRunTable.source_schema, MigrationRunTable.source_table).all()
+    for table in tables:
+        writer.writerow({
+            "record_type": "table", "source": f"{table.source_schema}.{table.source_table}",
+            "destination": f"{table.destination_schema}.{table.destination_table}",
+            "status": table.status, "total_rows": table.total_rows,
+            "inserted_rows": table.inserted_rows, "updated_rows": table.updated_rows,
+            "skipped_rows": table.skipped_rows, "failed_rows": table.failed_rows,
+            "validation_status": table.validation_status, "mismatch_rows": table.mismatch_rows,
+        })
+    errors = db.query(MigrationRowError).filter_by(run_id=run.id).order_by(MigrationRowError.created_at).limit(5000).all()
+    for item in errors:
+        writer.writerow({
+            "record_type": "row_error", "source_key": item.source_key,
+            "error_type": item.error_type, "error_message": item.error_message,
+        })
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]), media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="conduit-run-{run.id}.csv"'},
+    )
 
 
 @router.post("/{run_id}/resume", response_model=MigrationRunResponse, status_code=status.HTTP_202_ACCEPTED)
