@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, "feat/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conduit-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql+psycopg://conduit:conduit@localhost:5433/conduit_metadata
+      AUTH0_DOMAIN: example.auth0.com
+      AUTH0_AUDIENCE: https://api.conduit.local
+      AUTH0_ISSUER: https://example.auth0.com/
+      CONNECTION_ENCRYPTION_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend
+        run: python -m pip install -e ".[dev]"
+      - name: Ruff
+        run: ruff check app tests
+      - name: Backend tests
+        run: pytest -q
+      - name: Validate Alembic graph
+        run: alembic heads
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      AUTH0_SECRET: 0123456789012345678901234567890123456789012345678901234567890123
+      APP_BASE_URL: http://localhost:3000
+      AUTH0_DOMAIN: example.auth0.com
+      AUTH0_CLIENT_ID: conduit-ci-client
+      AUTH0_CLIENT_SECRET: conduit-ci-secret
+      AUTH0_AUDIENCE: https://api.conduit.local
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend
+        run: npm ci
+      - name: Lint frontend
+        run: npm run lint
+      - name: Build frontend
+        run: npm run build
