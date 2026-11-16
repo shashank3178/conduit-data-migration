@@ -9,7 +9,7 @@ os.environ.setdefault("AUTH0_DOMAIN", "example.auth0.com")
 os.environ.setdefault("AUTH0_AUDIENCE", "https://api.example.local")
 os.environ.setdefault("AUTH0_ISSUER", "https://example.auth0.com/")
 
-from app.services.migration_execution import _json_key, _restore_key, _write_batch  # noqa: E402
+from app.services.migration_execution import _json_key, _restore_key, _validate_table, _write_batch  # noqa: E402
 
 
 class FakeResult:
@@ -75,3 +75,45 @@ def test_upsert_separates_insert_update_and_unchanged():
     result = _write_batch(connection, table, ["id", "value"], ["id"],
                           [(1, "a"), (2, "b"), (3, "c")], "UPSERT")
     assert result == (1, 1, 1)
+
+
+class FakeNamedCursor:
+    def __init__(self, rows):
+        self.rows = list(rows)
+        self.position = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, _query):
+        return None
+
+    def fetchmany(self, size):
+        result = self.rows[self.position:self.position + size]
+        self.position += len(result)
+        return result
+
+
+class FakeReadConnection:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def cursor(self, name):
+        return FakeNamedCursor(self.rows)
+
+
+def test_streaming_reconciliation_counts_missing_extra_and_changed_rows():
+    table = SimpleNamespace(
+        source_schema="public", source_table="source",
+        destination_schema="public", destination_table="destination",
+    )
+    source = FakeReadConnection([(1, "a"), (2, "b"), (4, "d")])
+    destination = FakeReadConnection([(1, "a"), (3, "c"), (4, "changed")])
+    mismatch = _validate_table(
+        source, destination, table, ["id", "value"], ["id", "value"],
+        ["id"], ["id"], 2,
+    )
+    assert mismatch == 3
