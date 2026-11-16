@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.db.session import SessionLocal
 from app.models.connection import DatabaseConnection
 from app.models.migration_plan import MigrationColumnMapping, MigrationPlan, MigrationPlanTable
-from app.models.migration_run import MigrationRowError, MigrationRun, MigrationRunEvent, MigrationRunTable
+from app.models.migration_run import (\n    MigrationRowError,\n    MigrationRun,\n    MigrationRunEvent,\n    MigrationRunTable,\n)
 from app.services.connection_service import decrypt_password
 
 
@@ -376,7 +376,7 @@ def execute_run(run_id: uuid.UUID) -> None:
             run.heartbeat_at = datetime.now(UTC)
             _event(db, run, "run_finished", status=run.status, inserted=run.inserted_rows, updated=run.updated_rows, skipped=run.skipped_rows, failed=run.failed_rows, mismatches=run.mismatch_rows)
             db.commit()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - persist terminal state for any worker failure
             db.rollback()
             failed_run = db.get(MigrationRun, run_id)
             if failed_run:
