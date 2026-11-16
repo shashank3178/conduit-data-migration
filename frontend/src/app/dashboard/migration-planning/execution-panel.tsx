@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
   cancelMigrationRun, downloadMigrationRunCsv, getMigrationRun, getMigrationRunErrors,
-  getMigrationRunReport, getMigrationRunTables, listMigrationRuns, resumeMigrationRun,
+  getMigrationRunEvents, getMigrationRunReport, getMigrationRunTables, listMigrationRuns, resumeMigrationRun,
   startMigrationRun,
 } from "./execution-actions";
 
@@ -36,7 +36,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
         setSelected(detail);
         setTableProgress(await getMigrationRunTables(projectId, planId, current.id));
         setRowErrors(await getMigrationRunErrors(projectId, planId, current.id));
-        setEvents(await (await import('./execution-actions')).getMigrationRunEvents(projectId, planId, current.id));
+        setEvents(await getMigrationRunEvents(projectId, planId, current.id));
       }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not refresh migration runs."); }
     finally { setBusy(false); }
@@ -121,7 +121,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
       {events.length > 0 && <div className="space-y-2"><h3 className="text-sm font-semibold">Execution activity</h3><ol className="max-h-40 space-y-1 overflow-auto rounded border p-3 text-xs">{events.slice(-100).reverse().map((item:any)=><li key={item.id} className="flex justify-between gap-3 border-b py-1 last:border-0"><span>{item.event_type.replaceAll('_',' ')} {item.details?.duration_ms ? '· ' + item.details.duration_ms + ' ms' : ''}</span><time className="shrink-0 text-slate-500">{new Date(item.created_at).toLocaleString()}</time></li>)}</ol></div>}
       {rowErrors.length > 0 && <div className="space-y-2"><h3 className="text-sm font-semibold">Row-level errors (first {rowErrors.length})</h3><div className="max-h-56 overflow-auto rounded border"><table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-50"><tr><th className="p-2">Source key</th><th className="p-2">Error</th><th className="p-2">Attempts</th></tr></thead><tbody>{rowErrors.map((item:any)=><tr key={item.id} className="border-t"><td className="p-2">{JSON.stringify(item.source_key)}</td><td className="p-2">{item.error_message}</td><td className="p-2">{item.attempts}</td></tr>)}</tbody></table></div></div>}
     </div>}
-    {runs.length>1 && <label className="text-sm">Previous runs <select value={selected?.id ?? ""} onChange={async(e)=>{const item=runs.find(r=>r.id===e.target.value);if(item){setSelected(item);setTableProgress(await getMigrationRunTables(projectId,planId,item.id));setRowErrors(await getMigrationRunErrors(projectId,planId,item.id));setEvents(await (await import('./execution-actions')).getMigrationRunEvents(projectId,planId,item.id));}}} className="ml-2 rounded border p-2">{runs.map(r=><option key={r.id} value={r.id}>{r.created_at} · {r.status}</option>)}</select></label>}
+    {runs.length>1 && <label className="text-sm">Previous runs <select value={selected?.id ?? ""} onChange={async(e)=>{const item=runs.find(r=>r.id===e.target.value);if(item){setSelected(item);setTableProgress(await getMigrationRunTables(projectId,planId,item.id));setRowErrors(await getMigrationRunErrors(projectId,planId,item.id));setEvents(await getMigrationRunEvents(projectId,planId,item.id));}}} className="ml-2 rounded border p-2">{runs.map(r=><option key={r.id} value={r.id}>{r.created_at} · {r.status}</option>)}</select></label>}
     <p className="text-xs text-slate-500">Start the durable worker from the backend directory with: <code>python -m app.worker</code>. Keep at least one worker running to process queued migrations. Keyset checkpoints require mapped primary keys. Reconciliation compares mapped values in bounded batches.</p>
   </section>;
 }
