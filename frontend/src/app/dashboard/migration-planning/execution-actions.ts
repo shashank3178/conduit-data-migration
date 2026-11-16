@@ -50,3 +50,8 @@ export async function downloadMigrationRunCsv(projectId: string, planId: string,
   if (!response.ok) throw new Error(`Could not download migration report (HTTP ${response.status}).`);
   return response.text();
 }
+
+export async function retryMigrationRunErrors(projectId: string, planId: string, runId: string) {
+  const endpoint = "/projects/" + projectId + "/migration-plans/" + planId + "/runs/" + runId + "/retry-errors";
+  return apiRequest<any>(endpoint, await token(), { method: "POST" });
+}
