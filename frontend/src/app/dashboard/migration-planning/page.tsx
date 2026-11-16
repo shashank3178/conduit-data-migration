@@ -47,7 +47,7 @@ export default async function MigrationPlanningPage() {
       </header>
       <div className="mx-auto max-w-7xl px-6 py-8">
         <div className="mb-8">
-          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Phase 4</p>
+          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Migration workflow</p>
           <h1 className="mt-2 text-3xl font-bold">Migration planning</h1>
           <p className="mt-2 max-w-3xl text-slate-600">
             Configure a migration, select source tables, map columns, and prepare the destination schema.
