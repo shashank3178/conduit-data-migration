@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
   cancelMigrationRun, downloadMigrationRunCsv, getMigrationRun, getMigrationRunErrors,
-  getMigrationRunEvents, getMigrationRunReport, getMigrationRunTables, listMigrationRuns, resumeMigrationRun,
+  getMigrationRunEvents, getMigrationRunReport, getMigrationRunTables, listMigrationRuns, resumeMigrationRun, retryMigrationRunErrors,
   startMigrationRun,
 } from "./execution-actions";
 
@@ -62,6 +62,16 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
     finally { setBusy(false); }
   }
 
+  async function retryErrors() {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      setSelected(await retryMigrationRunErrors(projectId, planId, selected.id));
+      await refresh();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not retry quarantined rows.'); }
+    finally { setBusy(false); }
+  }
+
   async function downloadReport(format: 'json' | 'csv') {
     if (!selected) return;
     try {
@@ -97,6 +107,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
       <button disabled={busy} onClick={refresh} className="rounded-lg border px-4 py-2 text-sm">Refresh status</button>
       {selected && ["queued","running","cancel_requested"].includes(selected.status) && <button disabled={busy || selected.status==="cancel_requested"} onClick={cancel} className="rounded-lg border border-red-300 px-4 py-2 text-sm text-red-700">Cancel run</button>}
       {selected && ["failed","cancelled"].includes(selected.status) && <button disabled={busy} onClick={resume} className="rounded-lg border px-4 py-2 text-sm">Resume from checkpoint</button>}
+      {selected && selected.status === "partially_failed" && selected.failed_rows > 0 && <button disabled={busy} onClick={retryErrors} className="rounded-lg border px-4 py-2 text-sm">Retry quarantined rows</button>}
       {selected && <button disabled={busy} onClick={() => downloadReport('json')} className="rounded-lg border px-4 py-2 text-sm">Export JSON</button>}
       {selected && <button disabled={busy} onClick={() => downloadReport('csv')} className="rounded-lg border px-4 py-2 text-sm">Export CSV</button>}
     </div>
