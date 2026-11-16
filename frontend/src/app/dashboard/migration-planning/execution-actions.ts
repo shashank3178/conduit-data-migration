@@ -34,3 +34,19 @@ export async function resumeMigrationRun(projectId: string, planId: string, runI
 export async function cancelMigrationRun(projectId: string, planId: string, runId: string) {
   return apiRequest<any>(`/projects/${projectId}/migration-plans/${planId}/runs/${runId}/cancel`, await token(), { method: "POST" });
 }
+
+export async function getMigrationRunEvents(projectId: string, planId: string, runId: string) {
+  return apiRequest<any[]>(`/projects/${projectId}/migration-plans/${planId}/runs/${runId}/events`, await token(), { cache: "no-store" });
+}
+export async function getMigrationRunReport(projectId: string, planId: string, runId: string) {
+  return apiRequest<any>(`/projects/${projectId}/migration-plans/${planId}/runs/${runId}/report`, await token(), { cache: "no-store" });
+}
+export async function downloadMigrationRunCsv(projectId: string, planId: string, runId: string) {
+  const accessToken = await token();
+  const base = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1").replace(/\\/+$/, "");
+  const response = await fetch(`${base}/projects/${projectId}/migration-plans/${planId}/runs/${runId}/report.csv`, {
+    headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`Could not download migration report (HTTP ${response.status}).`);
+  return response.text();
+}
