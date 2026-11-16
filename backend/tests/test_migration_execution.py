@@ -9,7 +9,7 @@ os.environ.setdefault("AUTH0_DOMAIN", "example.auth0.com")
 os.environ.setdefault("AUTH0_AUDIENCE", "https://api.example.local")
 os.environ.setdefault("AUTH0_ISSUER", "https://example.auth0.com/")
 
-from app.services.migration_execution import _json_key, _restore_key, _write_batch
+from app.services.migration_execution import _json_key, _restore_key, _write_batch  # noqa: E402
 
 
 class FakeResult:
