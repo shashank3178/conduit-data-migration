@@ -49,9 +49,24 @@ def upgrade() -> None:
     )
     op.create_index("ix_migration_row_errors_run", "migration_row_errors", ["run_id"])
     op.create_index("ix_migration_row_errors_table", "migration_row_errors", ["run_table_id"])
+    op.create_table(
+        "migration_run_events",
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("run_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("run_table_id", postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column("event_type", sa.String(40), nullable=False),
+        sa.Column("details", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("CAST('{}' AS jsonb)")),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.ForeignKeyConstraint(["run_id"], ["migration_runs.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["run_table_id"], ["migration_run_tables.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index("ix_migration_run_events_run_created", "migration_run_events", ["run_id", "created_at"])
 
 
 def downgrade() -> None:
+    op.drop_index("ix_migration_run_events_run_created", table_name="migration_run_events")
+    op.drop_table("migration_run_events")
     op.drop_index("ix_migration_row_errors_table", table_name="migration_row_errors")
     op.drop_index("ix_migration_row_errors_run", table_name="migration_row_errors")
     op.drop_table("migration_row_errors")
