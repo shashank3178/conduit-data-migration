@@ -316,9 +316,10 @@ def execute_run(run_id: uuid.UUID) -> None:
                     continue
                 upper_key = _restore_key(progress.upper_key, key_meta)
                 last_key = _restore_key(progress.last_key, key_meta) if progress.last_key else None
-                retrying_errors = db.query(MigrationRowError.id).filter_by(
+                unresolved_errors = db.query(MigrationRowError).filter_by(
                     run_table_id=progress.id, resolved_at=None
-                ).first() is not None
+                ).all()
+                retrying_errors = bool(unresolved_errors)
                 while True:
                     if _cancel_requested(run_id):
                         break
@@ -362,9 +363,6 @@ def execute_run(run_id: uuid.UUID) -> None:
                     if retrying_errors:
                         failed_key_set = {tuple(_json_key(key)) for key in failed_keys}
                         batch_key_set = {tuple(_json_key(key)) for key in keys}
-                        unresolved_errors = db.query(MigrationRowError).filter_by(
-                            run_table_id=progress.id, resolved_at=None
-                        ).all()
                         for row_error in unresolved_errors:
                             error_key = tuple(row_error.source_key.get(name) for name in source_pk)
                             if error_key not in failed_key_set and error_key in batch_key_set:
