@@ -31,6 +31,7 @@ def execute_run(run_id: uuid.UUID) -> None:
     """Fetch source rows in bounded batches and commit each destination batch."""
     db = SessionLocal()
     source = destination = None
+    progress = None
     try:
         run = db.get(MigrationRun, run_id)
         if not run or run.status != "queued":
@@ -63,7 +64,7 @@ def execute_run(run_id: uuid.UUID) -> None:
             pairs = [(m.source_column, m.destination_column) for m in mappings if m.destination_column]
             if not pairs:
                 progress.status, progress.error_message = "failed", "No included column mappings."
-                run.failed_rows += 1
+                run.failed_rows += progress.total_rows
                 db.commit()
                 continue
 
@@ -110,9 +111,20 @@ def execute_run(run_id: uuid.UUID) -> None:
     except Exception as exc:
         db.rollback()
         failed = db.get(MigrationRun, run_id)
+        message = str(exc).splitlines()[0][:500]
         if failed:
+            if progress is not None:
+                table_progress = db.query(MigrationRunTable).filter_by(
+                    run_id=run_id, plan_table_id=progress.plan_table_id
+                ).first()
+                if table_progress:
+                    table_progress.status = "failed"
+                    table_progress.error_message = message
+                    remaining = max(0, table_progress.total_rows - table_progress.migrated_rows)
+                    table_progress.failed_rows = remaining
+                    failed.failed_rows += remaining
             failed.status = "failed"
-            failed.error_message = str(exc).splitlines()[0][:500]
+            failed.error_message = message
             failed.finished_at = datetime.now(timezone.utc)
             db.commit()
     finally:
