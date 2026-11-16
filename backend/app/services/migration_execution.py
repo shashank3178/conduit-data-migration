@@ -176,8 +176,17 @@ def _write_with_isolation(destination, db, run, progress, table, destination_col
         return inserted, updated, skipped, failed
 
 
+def _cursor_rows(cursor, size):
+    while True:
+        rows = cursor.fetchmany(size)
+        if not rows:
+            return
+        yield from rows
+
+
 def _validate_table(source, destination, table, source_columns, destination_columns,
                     source_pk, destination_pk, batch_size):
+    """Streaming merge comparison; counts missing, extra and changed rows exactly."""
     source_query = sql.SQL("SELECT {} FROM {}.{} ORDER BY {}").format(
         sql.SQL(", ").join(map(sql.Identifier, source_columns)),
         sql.Identifier(table.source_schema), sql.Identifier(table.source_table),
@@ -188,21 +197,41 @@ def _validate_table(source, destination, table, source_columns, destination_colu
         sql.Identifier(table.destination_schema), sql.Identifier(table.destination_table),
         sql.SQL(", ").join(map(sql.Identifier, destination_pk)),
     )
+    source_key_indexes = [source_columns.index(name) for name in source_pk]
+    destination_key_indexes = [destination_columns.index(name) for name in destination_pk]
     mismatch = 0
     with source.cursor(name=f"validate_src_{uuid.uuid4().hex[:16]}") as left, destination.cursor(
         name=f"validate_dst_{uuid.uuid4().hex[:16]}"
     ) as right:
         left.execute(source_query)
         right.execute(destination_query)
-        while True:
-            source_rows = left.fetchmany(batch_size)
-            destination_rows = right.fetchmany(batch_size)
-            if not source_rows and not destination_rows:
-                break
-            mismatch += abs(len(source_rows) - len(destination_rows))
-            mismatch += sum(1 for a, b in zip(source_rows, destination_rows) if tuple(a) != tuple(b))
+        source_rows = iter(_cursor_rows(left, batch_size))
+        destination_rows = iter(_cursor_rows(right, batch_size))
+        source_row = next(source_rows, None)
+        destination_row = next(destination_rows, None)
+        while source_row is not None or destination_row is not None:
+            if source_row is None:
+                mismatch += 1
+                destination_row = next(destination_rows, None)
+                continue
+            if destination_row is None:
+                mismatch += 1
+                source_row = next(source_rows, None)
+                continue
+            source_key = tuple(source_row[index] for index in source_key_indexes)
+            destination_key = tuple(destination_row[index] for index in destination_key_indexes)
+            if source_key < destination_key:
+                mismatch += 1
+                source_row = next(source_rows, None)
+            elif destination_key < source_key:
+                mismatch += 1
+                destination_row = next(destination_rows, None)
+            else:
+                if tuple(source_row) != tuple(destination_row):
+                    mismatch += 1
+                source_row = next(source_rows, None)
+                destination_row = next(destination_rows, None)
     return mismatch
-
 
 def execute_run(run_id: uuid.UUID) -> None:
     source = destination = None
