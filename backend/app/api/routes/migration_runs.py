@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
-from app.models.migration_plan import MigrationPlanTable
+from app.models.migration_plan import MigrationColumnMapping, MigrationPlanTable
 from app.models.migration_run import MigrationRowError, MigrationRun, MigrationRunTable
 from app.models.user import User
 from app.schemas.migration_run import (
@@ -44,14 +44,16 @@ def start_run(
     if payload.write_strategy == "UPSERT":
         for table in selected:
             pk = (table.source_primary_key or {}).get("constrained_columns") or []
-            mappings = db.query(MigrationPlanTable).filter_by(id=table.id).one()
             included = {
-                row.source_column for row in db.query(
-                    __import__("app.models.migration_plan", fromlist=["MigrationColumnMapping"]).MigrationColumnMapping
-                ).filter_by(plan_table_id=table.id, included=True).all()
+                row.source_column for row in db.query(MigrationColumnMapping).filter_by(
+                    plan_table_id=table.id, included=True
+                ).all()
             }
             if not pk or any(key not in included for key in pk):
-                raise HTTPException(status_code=422, detail=f"UPSERT requires every primary-key column to be included and mapped: {mappings.source_schema}.{mappings.source_table}.")
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"UPSERT requires every primary-key column to be included and mapped: {table.source_schema}.{table.source_table}.",
+                )
     run = MigrationRun(
         project_id=project_id, owner_id=user.id, plan_id=plan.id,
         batch_size=payload.batch_size, write_strategy=payload.write_strategy,
@@ -97,8 +99,8 @@ def get_run_errors(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
 @router.post("/{run_id}/resume", response_model=MigrationRunResponse, status_code=status.HTTP_202_ACCEPTED)
 def resume_run(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     run = _owned_run(db, user, project_id, plan_id, run_id)
-    if run.status not in {"failed", "partially_failed", "cancelled"}:
-        raise HTTPException(status_code=409, detail="Only failed, partially failed, or cancelled runs can be resumed.")
+    if run.status not in {"failed", "cancelled"}:
+        raise HTTPException(status_code=409, detail="Only failed or cancelled runs can be resumed. Row-level failures remain quarantined; start a new run after correcting them.")
     run.status = "queued"
     run.finished_at = None
     run.error_message = None
