@@ -12,8 +12,12 @@ from sqlalchemy import select
 from app.db.session import SessionLocal
 from app.models.connection import DatabaseConnection
 from app.models.migration_plan import MigrationColumnMapping, MigrationPlan, MigrationPlanTable
-from app.models.migration_run import MigrationRowError, MigrationRun, MigrationRunTable
+from app.models.migration_run import MigrationRowError, MigrationRun, MigrationRunEvent, MigrationRunTable
 from app.services.connection_service import decrypt_password
+
+
+def _event(db, run, event_type, run_table=None, **details):
+    db.add(MigrationRunEvent(run_id=run.id, run_table_id=run_table.id if run_table else None, event_type=event_type, details=details))
 
 
 def _connect(record: DatabaseConnection):
@@ -248,6 +252,7 @@ def execute_run(run_id: uuid.UUID) -> None:
         run.status = "running"
         run.started_at = run.started_at or datetime.now(UTC)
         run.heartbeat_at = datetime.now(UTC)
+        _event(db, run, "worker_started", write_strategy=run.write_strategy, batch_size=run.batch_size)
         db.commit()
         try:
             source_record = db.get(DatabaseConnection, plan.source_connection_id)
@@ -331,6 +336,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                     run.failed_rows += failed
                     run.migrated_rows += inserted + updated + skipped
                     run.heartbeat_at = datetime.now(UTC)
+                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key)
                     db.commit()
                 if _cancel_requested(run_id):
                     progress.status = "cancelled"
@@ -346,6 +352,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                 progress.mismatch_rows = mismatch
                 progress.validation_status = "passed" if mismatch == 0 else "failed"
                 run.mismatch_rows += mismatch
+                _event(db, run, "validation_finished", progress, mismatch_rows=mismatch, validation_status=progress.validation_status)
                 db.commit()
 
             cancelled = _cancel_requested(run_id)
@@ -353,6 +360,7 @@ def execute_run(run_id: uuid.UUID) -> None:
             run.status = "cancelled" if cancelled else ("partially_failed" if run.failed_rows or run.mismatch_rows else "completed")
             run.finished_at = datetime.now(UTC)
             run.heartbeat_at = datetime.now(UTC)
+            _event(db, run, "run_finished", status=run.status, inserted=run.inserted_rows, updated=run.updated_rows, skipped=run.skipped_rows, failed=run.failed_rows, mismatches=run.mismatch_rows)
             db.commit()
         except Exception as exc:
             db.rollback()
@@ -361,6 +369,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                 failed_run.status = "failed"
                 failed_run.error_message = f"Migration execution failed ({type(exc).__name__})."
                 failed_run.finished_at = datetime.now(UTC)
+                _event(db, failed_run, "run_failed", error_type=type(exc).__name__)
                 db.commit()
         finally:
             if source:
@@ -379,6 +388,7 @@ def claim_next_run():
             return None
         run.status = "running"
         run.heartbeat_at = datetime.now(UTC)
+        db.add(MigrationRunEvent(run_id=run.id, event_type="worker_claimed", details={}))
         db.commit()
         return run.id
 
