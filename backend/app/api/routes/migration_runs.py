@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
 from app.models.migration_plan import MigrationColumnMapping, MigrationPlanTable
-from app.models.migration_run import (\n    MigrationRowError,\n    MigrationRun,\n    MigrationRunEvent,\n    MigrationRunTable,\n)
+from app.models.migration_run import (
+    MigrationRowError,
+    MigrationRun,
+    MigrationRunEvent,
+    MigrationRunTable,
+)
 from app.models.user import User
 from app.schemas.migration_run import (
     MigrationRowErrorResponse,
