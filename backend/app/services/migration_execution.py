@@ -148,13 +148,13 @@ def _write_batch(destination, table, destination_columns, conflict_columns, rows
     return inserted, 0, len(rows) - inserted
 
 
-def _record_row_error(db, run, progress, key, exc):
+def _record_row_error(db, run, progress, key, key_columns, exc):
     db.add(MigrationRowError(
         run_id=run.id, run_table_id=progress.id,
-        source_key={str(index): value for index, value in enumerate(_json_key(key))},
+        source_key={name: value for name, value in zip(key_columns, _json_key(key), strict=True)},
         error_type=type(exc).__name__,
         error_message=f"Destination row write failed ({type(exc).__name__}).",
-        attempts=progress.retry_count + 1,
+        attempts=1,
     ))
 
 
@@ -176,7 +176,7 @@ def _write_with_isolation(destination, db, run, progress, table, destination_col
                     skipped += outcome[2]
                 except psycopg.Error as exc:
                     failed += 1
-                    _record_row_error(db, run, progress, key, exc)
+                    _record_row_error(db, run, progress, key, conflict_columns, exc)
         return inserted, updated, skipped, failed
 
 
