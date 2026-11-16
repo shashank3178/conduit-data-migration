@@ -93,6 +93,10 @@ def execute_run(run_id: uuid.UUID) -> None:
                     run.migrated_rows += len(batch)
                     db.commit()
 
+            if _cancel_requested(run_id):
+                progress.status = "cancelled"
+                db.commit()
+                break
             if progress.status == "running":
                 progress.status = "completed"
                 run.completed_tables += 1
