@@ -154,13 +154,21 @@ def _write_batch(destination, table, destination_columns, conflict_columns, rows
 
 
 def _record_row_error(db, run, progress, key, key_columns, exc):
-    db.add(MigrationRowError(
-        run_id=run.id, run_table_id=progress.id,
-        source_key={name: value for name, value in zip(key_columns, _json_key(key), strict=True)},
-        error_type=type(exc).__name__,
-        error_message=f"Destination row write failed ({type(exc).__name__}).",
-        attempts=1,
-    ))
+    source_key = {name: value for name, value in zip(key_columns, _json_key(key), strict=True)}
+    existing = db.query(MigrationRowError).filter_by(
+        run_table_id=progress.id, source_key=source_key, resolved_at=None
+    ).first()
+    if existing:
+        existing.attempts += 1
+        existing.error_type = type(exc).__name__
+        existing.error_message = f"Destination row write failed ({type(exc).__name__})."
+    else:
+        db.add(MigrationRowError(
+            run_id=run.id, run_table_id=progress.id, source_key=source_key,
+            error_type=type(exc).__name__,
+            error_message=f"Destination row write failed ({type(exc).__name__}).",
+            attempts=1,
+        ))
 
 
 def _write_with_isolation(destination, db, run, progress, table, destination_columns,
@@ -168,11 +176,12 @@ def _write_with_isolation(destination, db, run, progress, table, destination_col
     try:
         with destination.transaction():
             result = _write_batch(destination, table, destination_columns, conflict_columns, rows, strategy)
-        return (*result, 0)
+        return (*result, 0, [])
     except psycopg.OperationalError:
         raise
     except psycopg.Error:
         inserted = updated = skipped = failed = 0
+        failed_keys = []
         with destination.transaction():
             for row, key in zip(rows, keys, strict=True):
                 try:
@@ -183,8 +192,9 @@ def _write_with_isolation(destination, db, run, progress, table, destination_col
                     skipped += outcome[2]
                 except psycopg.Error as exc:
                     failed += 1
+                    failed_keys.append(key)
                     _record_row_error(db, run, progress, key, key_columns, exc)
-        return inserted, updated, skipped, failed
+        return inserted, updated, skipped, failed, failed_keys
 
 
 def _cursor_rows(cursor, size):
@@ -331,7 +341,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                     batch_started = time.monotonic()
                     for attempt in range(run.max_retries + 1):
                         try:
-                            inserted, updated, skipped, failed = _write_with_isolation(
+                            inserted, updated, skipped, failed, failed_keys = _write_with_isolation(
                                 destination, db, run, progress, table, destination_columns,
                                 destination_pk, source_pk, batch, keys, run.write_strategy,
                             )
@@ -346,6 +356,14 @@ def execute_run(run_id: uuid.UUID) -> None:
                             destination = _connect(destination_record)
                     last_key = keys[-1]
                     progress.last_key = _json_key(last_key)
+                    failed_key_set = {tuple(_json_key(key)) for key in failed_keys}
+                    unresolved_errors = db.query(MigrationRowError).filter_by(
+                        run_table_id=progress.id, resolved_at=None
+                    ).all()
+                    for row_error in unresolved_errors:
+                        error_key = tuple(row_error.source_key.get(name) for name in source_pk)
+                        if error_key not in failed_key_set and error_key in {tuple(_json_key(key)) for key in keys}:
+                            row_error.resolved_at = datetime.now(UTC)
                     progress.inserted_rows += inserted
                     progress.updated_rows += updated
                     progress.skipped_rows += skipped
