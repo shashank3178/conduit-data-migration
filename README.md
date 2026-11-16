@@ -100,8 +100,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 **Terminal 2 — migration worker:**
 ~~~powershell
-cd conduit-data-migration\\backend
-.\\.venv\\Scripts\\Activate.ps1
+cd conduit-data-migration\backend
+.\\.venv\Scripts\Activate.ps1
 python -m app.worker
 ~~~
 Keep at least one worker running; multiple worker processes may share the PostgreSQL-backed queue.
