@@ -2,7 +2,7 @@
 
 CONDUIT is a PostgreSQL-to-PostgreSQL migration workbench using Next.js 15, React 19, Tailwind, FastAPI, SQLAlchemy, Psycopg 3, and PostgreSQL. Its workflow is **data connections → discovery → migration planning → destination schema preparation → batch execution**.
 
-> Implemented: authenticated projects, Fernet-encrypted database credentials, catalog discovery, table/column mapping, plan validation, safe DDL, batch data transfer, run telemetry, and cooperative cancellation. The current runner is a FastAPI in-process background task for local/prototype use; production requires a durable worker/queue.
+> Implemented: authenticated projects, Fernet-encrypted database credentials, catalog discovery, table/column mapping, plan validation, safe DDL, batch data transfer, run telemetry, and cooperative cancellation. Migration execution is queued in metadata PostgreSQL and processed by a separately operated worker. Phase 6 adds INSERT_ONLY/UPSERT, primary-key keyset checkpoints, retry, row-error quarantine, exact streaming reconciliation, and execution event history.
 
 ## Architecture
 
@@ -30,8 +30,9 @@ Browser (Next.js) → Auth0 session/server actions → FastAPI /api/v1 (JWT RS25
 4. **Column mapping:** _suggest_column_mappings() uses exact column-name matches for existing target tables; unmatched source columns are excluded/unmapped. New target tables get same-name/same-type suggestions. This is deterministic rules + manual overrides, not AI/fuzzy mapping.
 5. **Type checks:** backend/app/services/migration_ddl.py:types_compatible() supports normalized type equality and conservative widening (integer/floating ranks and VARCHAR length). It does not guess arbitrary casts.
 6. **DDL:** build_ddl() quotes identifiers and restricts types to an allow-list. Applying DDL creates missing schemas/tables only; it does not drop, truncate, or alter existing tables.
-7. **Execution:** backend/app/services/migration_execution.py:execute_run() opens Psycopg connections, reads via named/server-side cursors in fetchmany(batch_size), applies saved mappings, parameterizes values, and commits destination batches independently. ON CONFLICT DO NOTHING skips duplicate-key conflicts.
-8. **Progress:** MigrationRun and MigrationRunTable persist statuses, row counts, table progress, and errors. Cancellation is checked between batches.
+7. **Execution:** backend/app/services/migration_execution.py uses primary-key keyset pagination, parameterized multi-row inserts, INSERT_ONLY conflict skipping, and UPSERT updates for changed non-key columns. Source primary keys must be mapped; UPSERT also requires a matching destination unique/primary-key constraint.
+8. **Durable jobs:** API requests enqueue MigrationRun records. One or more separate worker processes claim jobs with PostgreSQL FOR UPDATE SKIP LOCKED. Batch checkpoints and worker heartbeats are stored in metadata PostgreSQL.
+9. **Accounting and validation:** per-run/per-table inserted, updated, skipped, failed and mismatch counters are persisted. Row-level write failures are quarantined; mapped values are compared in a streaming primary-key merge after transfer. Run events record queue, worker, batch and validation activity.
 
 ## Local setup (Windows PowerShell)
 
@@ -97,7 +98,15 @@ cd conduit-data-migration\backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ~~~
 
-**Terminal 2 — frontend:**
+**Terminal 2 — migration worker:**
+~~~powershell
+cd conduit-data-migration\\backend
+.\\.venv\\Scripts\\Activate.ps1
+python -m app.worker
+~~~
+Keep at least one worker running; multiple worker processes may share the PostgreSQL-backed queue.
+
+**Terminal 3 — frontend:**
 ~~~powershell
 cd conduit-data-migration\frontend
 npm run dev
@@ -129,7 +138,9 @@ Protected APIs use Auth0 access tokens for audience https://api.conduit.local. F
 - /projects/{project_id}/connections (CRUD/test)
 - /projects/{project_id}/connections/{connection_id}/discover and /discovery
 - /projects/{project_id}/migration-plans (plan, selection, mapping, validation, DDL)
-- /projects/{project_id}/migration-plans/{plan_id}/runs (start/list/status/table progress/cancel)
+- /projects/{project_id}/migration-plans/{plan_id}/runs (queue/list/status/table progress/cancel/resume)
+- /projects/{project_id}/migration-plans/{plan_id}/runs/{run_id}/errors (row-level rejects)
+- /projects/{project_id}/migration-plans/{plan_id}/runs/{run_id}/events (audit/telemetry)
 
 Swagger Authorize: Bearer <access-token>. Do not paste real tokens into chat, source, commits, or logs.
 
@@ -143,7 +154,9 @@ Swagger Authorize: Bearer <access-token>. Do not paste real tokens into chat, so
 | Catalog discovery | backend/app/services/discovery_service.py |
 | Plan/mapping/validation | backend/app/services/migration_plan_service.py |
 | Type allow-list and DDL | backend/app/services/migration_ddl.py |
-| Batch execution | backend/app/services/migration_execution.py |
+| Batch execution, UPSERT and reconciliation | backend/app/services/migration_execution.py |
+| Durable worker | backend/app/worker.py |
+| Run/checkpoint/error/event models | backend/app/models/migration_run.py; backend/migrations/versions/f6a1b2c3d4e5_phase6_reliability.py |
 | Plan/run APIs | backend/app/api/routes/migration_plans.py; migration_runs.py |
 | Run models/revision | backend/app/models/migration_run.py; backend/migrations/versions/c81f3a9d2e40_add_migration_execution.py |
 | Planning/execution UI | frontend/src/app/dashboard/migration-planning/planning-client.tsx; execution-panel.tsx |
@@ -164,14 +177,16 @@ npm run lint
 npm run build
 ~~~
 
-Automated backend tests currently cover discovery serialization and DDL generation. Validate row transfer against disposable databases before production use.
+Automated backend tests cover discovery serialization, DDL generation, checkpoint key serialization, and write-outcome accounting. Run the complete suite and exercise UPSERT, worker restart, row rejects, and reconciliation against disposable PostgreSQL databases before production use.
 
 ## Safety and limitations
 
-- BackgroundTasks is process-local/not durable; restart can interrupt a run. Production needs a dedicated durable worker/queue.
-- Destination batches commit independently; failure can leave earlier batches committed. Full checkpoint/resume is not implemented.
-- ON CONFLICT DO NOTHING is duplicate-key skip, not upsert/reconciliation.
-- FK dependency ordering, row-level reject quarantine, resumable checkpoints, checksums, and complete constraint/index/identity cloning remain future work.
+- A worker crash after a destination commit but before metadata checkpoint commit can replay the last batch. INSERT_ONLY and UPSERT are idempotent for the configured conflict key, but cross-database atomic commits are not provided; aggregate counters after an ambiguous crash need reconciliation.
+- Keyset checkpointing currently requires a mapped primary key and supported scalar key types. Tables without primary keys are rejected rather than migrated with unsafe OFFSET pagination.
+- UPSERT is source-authoritative and requires a matching destination unique/primary-key constraint. It does not synchronize deletes or resolve concurrent writes from two authoritative systems.
+- Transient connection failures are retried; row-level constraint/conversion failures are quarantined. Correct the underlying issue and start a new idempotent run to retry rejected rows.
+- Validation compares mapped columns and keys exactly. It is streaming, but a full table scan can add substantial runtime and database load.
+- Foreign-key dependency scheduling, delete synchronization, schema alteration, and cross-database distributed transactions remain outside this implementation.
 - Existing destination tables are never dropped/truncated/altered; ensure compatible shape.
 - Back up data, use least privilege and SSL for remote databases, and never log secrets or sensitive row payloads.
 
