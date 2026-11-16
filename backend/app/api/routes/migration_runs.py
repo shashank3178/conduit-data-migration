@@ -6,10 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
 from app.models.migration_plan import MigrationColumnMapping, MigrationPlanTable
-from app.models.migration_run import MigrationRowError, MigrationRun, MigrationRunTable
+from app.models.migration_run import MigrationRowError, MigrationRun, MigrationRunEvent, MigrationRunTable
 from app.models.user import User
 from app.schemas.migration_run import (
     MigrationRowErrorResponse,
+    MigrationRunEventResponse,
     MigrationRunCreate,
     MigrationRunResponse,
     MigrationRunTableResponse,
@@ -61,6 +62,7 @@ def start_run(
     )
     db.add(run)
     db.flush()
+    db.add(MigrationRunEvent(run_id=run.id, event_type="run_queued", details={"strategy": run.write_strategy, "batch_size": run.batch_size}))
     for table in selected:
         db.add(MigrationRunTable(
             run_id=run.id, plan_table_id=table.id,
@@ -94,6 +96,12 @@ def get_run_tables(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
 def get_run_errors(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     _owned_run(db, user, project_id, plan_id, run_id)
     return db.query(MigrationRowError).filter_by(run_id=run_id).order_by(MigrationRowError.created_at).limit(5000).all()
+
+
+@router.get("/{run_id}/events", response_model=list[MigrationRunEventResponse])
+def get_run_events(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _owned_run(db, user, project_id, plan_id, run_id)
+    return db.query(MigrationRunEvent).filter_by(run_id=run_id).order_by(MigrationRunEvent.created_at).limit(10000).all()
 
 
 @router.post("/{run_id}/resume", response_model=MigrationRunResponse, status_code=status.HTTP_202_ACCEPTED)
