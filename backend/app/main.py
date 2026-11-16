@@ -14,7 +14,7 @@ from app.core.config import settings
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.5.0",
+    version="0.6.0",
 )
 
 app.add_middleware(
@@ -38,6 +38,6 @@ app.include_router(migration_runs.router, prefix="/api/v1")
 def root():
     return {
         "application": "Conduit",
-        "version": "0.5.0",
+        "version": "0.6.0",
         "docs": "/docs",
     }
