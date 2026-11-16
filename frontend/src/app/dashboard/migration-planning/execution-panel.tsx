@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import {
-  cancelMigrationRun, getMigrationRun, getMigrationRunErrors, getMigrationRunTables,
-  listMigrationRuns, resumeMigrationRun, startMigrationRun,
+  cancelMigrationRun, downloadMigrationRunCsv, getMigrationRun, getMigrationRunErrors,
+  getMigrationRunReport, getMigrationRunTables, listMigrationRuns, resumeMigrationRun,
+  startMigrationRun,
 } from "./execution-actions";
 
 type Run = {
@@ -20,6 +21,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
   const [selected, setSelected] = useState<Run | null>(null);
   const [tableProgress, setTableProgress] = useState<any[]>([]);
   const [rowErrors, setRowErrors] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -34,6 +36,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
         setSelected(detail);
         setTableProgress(await getMigrationRunTables(projectId, planId, current.id));
         setRowErrors(await getMigrationRunErrors(projectId, planId, current.id));
+        setEvents(await (await import('./execution-actions')).getMigrationRunEvents(projectId, planId, current.id));
       }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not refresh migration runs."); }
     finally { setBusy(false); }
@@ -59,6 +62,20 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
     finally { setBusy(false); }
   }
 
+  async function downloadReport(format: 'json' | 'csv') {
+    if (!selected) return;
+    try {
+      const report = format === 'json' ? JSON.stringify(await getMigrationRunReport(projectId, planId, selected.id), null, 2) : await downloadMigrationRunCsv(projectId, planId, selected.id);
+      const blob = new Blob([report], { type: format === 'json' ? 'application/json' : 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'conduit-run-' + selected.id + '.' + format;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not download report.'); }
+  }
+
   async function resume() {
     if (!selected) return;
     setBusy(true);
@@ -80,6 +97,8 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
       <button disabled={busy} onClick={refresh} className="rounded-lg border px-4 py-2 text-sm">Refresh status</button>
       {selected && ["queued","running","cancel_requested"].includes(selected.status) && <button disabled={busy || selected.status==="cancel_requested"} onClick={cancel} className="rounded-lg border border-red-300 px-4 py-2 text-sm text-red-700">Cancel run</button>}
       {selected && ["failed","cancelled"].includes(selected.status) && <button disabled={busy} onClick={resume} className="rounded-lg border px-4 py-2 text-sm">Resume from checkpoint</button>}
+      {selected && <button disabled={busy} onClick={() => downloadReport('json')} className="rounded-lg border px-4 py-2 text-sm">Export JSON</button>}
+      {selected && <button disabled={busy} onClick={() => downloadReport('csv')} className="rounded-lg border px-4 py-2 text-sm">Export CSV</button>}
     </div>
     {writeStrategy === "UPSERT" && <p className="text-xs text-amber-700">UPSERT requires mapped source primary-key columns and a matching unique/primary-key constraint on the destination. Source values are authoritative.</p>}
     {![ "ready", "schema_prepared" ].includes(planStatus) && <p className="text-sm text-amber-700">Validate the plan and prepare destination tables before execution.</p>}
@@ -99,9 +118,10 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
       </div>
       {selected.error_message && <p className="text-sm text-red-700">{selected.error_message}</p>}
       <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="border-b text-slate-500"><tr><th className="p-2">Source</th><th className="p-2">Destination</th><th className="p-2">Status</th><th className="p-2">Inserted</th><th className="p-2">Updated</th><th className="p-2">Skipped</th><th className="p-2">Failed</th><th className="p-2">Validation</th></tr></thead><tbody>{tableProgress.map((t:any)=><tr key={t.id} className="border-b"><td className="p-2">{t.source_schema}.{t.source_table}</td><td className="p-2">{t.destination_schema}.{t.destination_table}</td><td className="p-2">{t.status}</td><td className="p-2">{t.inserted_rows.toLocaleString()}</td><td className="p-2">{t.updated_rows.toLocaleString()}</td><td className="p-2">{t.skipped_rows.toLocaleString()}</td><td className="p-2">{t.failed_rows.toLocaleString()}</td><td className="p-2">{t.validation_status}: {t.mismatch_rows}</td></tr>)}</tbody></table></div>
+      {events.length > 0 && <div className="space-y-2"><h3 className="text-sm font-semibold">Execution activity</h3><ol className="max-h-40 space-y-1 overflow-auto rounded border p-3 text-xs">{events.slice(-100).reverse().map((item:any)=><li key={item.id} className="flex justify-between gap-3 border-b py-1 last:border-0"><span>{item.event_type.replaceAll('_',' ')} {item.details?.duration_ms ? '· ' + item.details.duration_ms + ' ms' : ''}</span><time className="shrink-0 text-slate-500">{new Date(item.created_at).toLocaleString()}</time></li>)}</ol></div>}
       {rowErrors.length > 0 && <div className="space-y-2"><h3 className="text-sm font-semibold">Row-level errors (first {rowErrors.length})</h3><div className="max-h-56 overflow-auto rounded border"><table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-50"><tr><th className="p-2">Source key</th><th className="p-2">Error</th><th className="p-2">Attempts</th></tr></thead><tbody>{rowErrors.map((item:any)=><tr key={item.id} className="border-t"><td className="p-2">{JSON.stringify(item.source_key)}</td><td className="p-2">{item.error_message}</td><td className="p-2">{item.attempts}</td></tr>)}</tbody></table></div></div>}
     </div>}
-    {runs.length>1 && <label className="text-sm">Previous runs <select value={selected?.id ?? ""} onChange={async(e)=>{const item=runs.find(r=>r.id===e.target.value);if(item){setSelected(item);setTableProgress(await getMigrationRunTables(projectId,planId,item.id));setRowErrors(await getMigrationRunErrors(projectId,planId,item.id));}}} className="ml-2 rounded border p-2">{runs.map(r=><option key={r.id} value={r.id}>{r.created_at} · {r.status}</option>)}</select></label>}
+    {runs.length>1 && <label className="text-sm">Previous runs <select value={selected?.id ?? ""} onChange={async(e)=>{const item=runs.find(r=>r.id===e.target.value);if(item){setSelected(item);setTableProgress(await getMigrationRunTables(projectId,planId,item.id));setRowErrors(await getMigrationRunErrors(projectId,planId,item.id));setEvents(await (await import('./execution-actions')).getMigrationRunEvents(projectId,planId,item.id));}}} className="ml-2 rounded border p-2">{runs.map(r=><option key={r.id} value={r.id}>{r.created_at} · {r.status}</option>)}</select></label>}
     <p className="text-xs text-slate-500">Start the durable worker from the backend directory with: <code>python -m app.worker</code>. Keep at least one worker running to process queued migrations. Keyset checkpoints require mapped primary keys. Reconciliation compares mapped values in bounded batches.</p>
   </section>;
 }
