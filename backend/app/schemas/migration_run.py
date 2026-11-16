@@ -71,3 +71,11 @@ class MigrationRunResponse(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     created_at: datetime
+
+class MigrationRunEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    run_table_id: uuid.UUID | None
+    event_type: str
+    details: dict
+    created_at: datetime
