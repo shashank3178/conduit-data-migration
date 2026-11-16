@@ -73,7 +73,10 @@ def get_run_tables(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
 def cancel_run(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     run = _owned_run(db, user, project_id, plan_id, run_id)
     if run.status in {"queued", "running"}:
-        run.status = "cancel_requested"
+        run.status = "cancelled" if run.status == "queued" else "cancel_requested"
+        if run.status == "cancelled":
+            from datetime import datetime, timezone
+            run.finished_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(run)
     return run
