@@ -80,7 +80,7 @@ alembic upgrade head
 alembic current
 alembic heads
 ~~~
-Expected revision: **c81f3a9d2e40**.
+Expected revision: **f6a1b2c3d4e5**.
 
 ### 4. Install frontend
 In another terminal:
@@ -141,6 +141,7 @@ Protected APIs use Auth0 access tokens for audience https://api.conduit.local. F
 - /projects/{project_id}/migration-plans/{plan_id}/runs (queue/list/status/table progress/cancel/resume)
 - /projects/{project_id}/migration-plans/{plan_id}/runs/{run_id}/errors (row-level rejects)
 - /projects/{project_id}/migration-plans/{plan_id}/runs/{run_id}/events (audit/telemetry)
+- /projects/{project_id}/migration-plans/{plan_id}/runs/{run_id}/report and /report.csv (JSON/CSV exports)
 
 Swagger Authorize: Bearer <access-token>. Do not paste real tokens into chat, source, commits, or logs.
 
