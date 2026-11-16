@@ -308,6 +308,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                     if not batch:
                         break
                     keys = [tuple(row[source_columns.index(name)] for name in source_pk) for row in batch]
+                    batch_started = time.monotonic()
                     for attempt in range(run.max_retries + 1):
                         try:
                             inserted, updated, skipped, failed = _write_with_isolation(
@@ -336,7 +337,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                     run.failed_rows += failed
                     run.migrated_rows += inserted + updated + skipped
                     run.heartbeat_at = datetime.now(UTC)
-                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key)
+                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, duration_ms=round((time.monotonic() - batch_started) * 1000, 2))
                     db.commit()
                 if _cancel_requested(run_id):
                     progress.status = "cancelled"
@@ -393,7 +394,7 @@ def claim_next_run():
         return run.id
 
 
-def recover_stale_runs(stale_after_seconds: int = 120):
+def recover_stale_runs(stale_after_seconds: int = 600):
     """Requeue jobs whose worker disappeared; execution resumes from last_key."""
     from datetime import timedelta
 
