@@ -49,6 +49,13 @@ def execute_run(run_id: uuid.UUID) -> None:
                 break
             progress = db.query(MigrationRunTable).filter_by(run_id=run_id, plan_table_id=table.id).one()
             progress.status = "running"
+            exact_count = source.execute(
+                sql.SQL("SELECT COUNT(*) FROM {}.{}").format(
+                    sql.Identifier(table.source_schema), sql.Identifier(table.source_table)
+                )
+            ).fetchone()[0]
+            progress.total_rows = exact_count
+            run.total_rows += exact_count
             db.commit()
             mappings = db.query(MigrationColumnMapping).filter_by(
                 plan_table_id=table.id, included=True
@@ -84,7 +91,6 @@ def execute_run(run_id: uuid.UUID) -> None:
                     destination.commit()
                     progress.migrated_rows += len(batch)
                     run.migrated_rows += len(batch)
-                    run.total_rows += len(batch)
                     db.commit()
 
             if progress.status == "running":
