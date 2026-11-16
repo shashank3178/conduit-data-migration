@@ -159,7 +159,7 @@ def _record_row_error(db, run, progress, key, key_columns, exc):
 
 
 def _write_with_isolation(destination, db, run, progress, table, destination_columns,
-                          conflict_columns, rows, keys, strategy):
+                          conflict_columns, key_columns, rows, keys, strategy):
     try:
         with destination.transaction():
             result = _write_batch(destination, table, destination_columns, conflict_columns, rows, strategy)
@@ -176,7 +176,7 @@ def _write_with_isolation(destination, db, run, progress, table, destination_col
                     skipped += outcome[2]
                 except psycopg.Error as exc:
                     failed += 1
-                    _record_row_error(db, run, progress, key, conflict_columns, exc)
+                    _record_row_error(db, run, progress, key, key_columns, exc)
         return inserted, updated, skipped, failed
 
 
@@ -326,7 +326,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                         try:
                             inserted, updated, skipped, failed = _write_with_isolation(
                                 destination, db, run, progress, table, destination_columns,
-                                destination_pk, batch, keys, run.write_strategy,
+                                destination_pk, source_pk, batch, keys, run.write_strategy,
                             )
                             break
                         except psycopg.OperationalError:
