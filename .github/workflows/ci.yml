@@ -16,6 +16,20 @@ concurrency:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: conduit_test
+          POSTGRES_PASSWORD: conduit_test
+          POSTGRES_DB: conduit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U conduit_test -d conduit_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         working-directory: backend
@@ -25,6 +39,7 @@ jobs:
       AUTH0_AUDIENCE: https://api.conduit.local
       AUTH0_ISSUER: https://example.auth0.com/
       CONNECTION_ENCRYPTION_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      TEST_DATABASE_URL: postgresql://conduit_test:conduit_test@localhost:5432/conduit_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
