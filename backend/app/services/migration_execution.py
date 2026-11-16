@@ -302,9 +302,22 @@ def execute_run(run_id: uuid.UUID) -> None:
                 while True:
                     if _cancel_requested(run_id):
                         break
-                    batch = _fetch_batch(source, table, source_pk, source_columns,
-                                         min(run.batch_size, max(1, 60000 // len(source_columns))),
-                                         last_key, upper_key)
+                    for source_attempt in range(run.max_retries + 1):
+                        try:
+                            batch = _fetch_batch(
+                                source, table, source_pk, source_columns,
+                                min(run.batch_size, max(1, 60000 // len(source_columns))),
+                                last_key, upper_key,
+                            )
+                            break
+                        except psycopg.OperationalError:
+                            progress.retry_count += 1
+                            db.commit()
+                            if source_attempt >= run.max_retries:
+                                raise
+                            time.sleep(min(2 ** source_attempt, 15))
+                            source.close()
+                            source = _connect(source_record)
                     if not batch:
                         break
                     keys = [tuple(row[source_columns.index(name)] for name in source_pk) for row in batch]
