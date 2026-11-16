@@ -190,6 +190,8 @@ def _write_with_isolation(destination, db, run, progress, table, destination_col
                     inserted += outcome[0]
                     updated += outcome[1]
                     skipped += outcome[2]
+                except psycopg.OperationalError:
+                    raise
                 except psycopg.Error as exc:
                     failed += 1
                     failed_keys.append(key)
