@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -7,9 +8,13 @@ from app.api.dependencies import get_current_user, get_db
 from app.models.migration_plan import MigrationPlanTable
 from app.models.migration_run import MigrationRun, MigrationRunTable
 from app.models.user import User
-from app.schemas.migration_run import MigrationRunCreate, MigrationRunResponse, MigrationRunTableResponse
-from app.services.migration_plan_service import get_plan
+from app.schemas.migration_run import (
+    MigrationRunCreate,
+    MigrationRunResponse,
+    MigrationRunTableResponse,
+)
 from app.services.migration_execution import execute_run
+from app.services.migration_plan_service import get_plan
 
 router = APIRouter(prefix="/projects/{project_id}/migration-plans/{plan_id}/runs", tags=["Migration execution"])
 
@@ -75,8 +80,8 @@ def cancel_run(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID, db:
     if run.status in {"queued", "running"}:
         run.status = "cancelled" if run.status == "queued" else "cancel_requested"
         if run.status == "cancelled":
-            from datetime import datetime, timezone
-            run.finished_at = datetime.now(timezone.utc)
+            from datetime import datetime
+            run.finished_at = datetime.now(UTC)
         db.commit()
         db.refresh(run)
     return run

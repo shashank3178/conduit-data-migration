@@ -1,10 +1,9 @@
 """Batch migration runner. In-process background execution is for local/demo use."""
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import psycopg
 from psycopg import sql
-from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.models.connection import DatabaseConnection
@@ -37,7 +36,7 @@ def execute_run(run_id: uuid.UUID) -> None:
         if not run or run.status != "queued":
             return
         plan = db.get(MigrationPlan, run.plan_id)
-        run.status, run.started_at = "running", datetime.now(timezone.utc)
+        run.status, run.started_at = "running", datetime.now(UTC)
         db.commit()
         source = _connect(db.get(DatabaseConnection, plan.source_connection_id))
         destination = _connect(db.get(DatabaseConnection, plan.destination_connection_id))
@@ -106,7 +105,7 @@ def execute_run(run_id: uuid.UUID) -> None:
         run.status = "cancelled" if _cancel_requested(run_id) else (
             "partially_failed" if run.failed_rows else "completed"
         )
-        run.finished_at = datetime.now(timezone.utc)
+        run.finished_at = datetime.now(UTC)
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -125,7 +124,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                     failed.failed_rows += remaining
             failed.status = "failed"
             failed.error_message = message
-            failed.finished_at = datetime.now(timezone.utc)
+            failed.finished_at = datetime.now(UTC)
             db.commit()
     finally:
         if source:

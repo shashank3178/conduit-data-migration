@@ -1,7 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import connections, discovery, health, migration_plans, migration_runs, projects, users
+from app.api.routes import (
+    connections,
+    discovery,
+    health,
+    migration_plans,
+    migration_runs,
+    projects,
+    users,
+)
 from app.core.config import settings
 
 app = FastAPI(
