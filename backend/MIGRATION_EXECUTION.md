@@ -63,7 +63,7 @@ All source primary-key columns must be included and mapped. Checkpointed executi
 - Transient destination connection failures are retried with bounded exponential backoff.
 - A failed batch is isolated row by row under savepoints; rejected rows are written to migration_row_errors without storing source payloads.
 - Cancellation is cooperative between batches.
-- Resume is available for failed/cancelled runs. Row-level rejects should be corrected and retried in a new idempotent run.
+- Resume is available for failed/cancelled runs. The retry-errors action replays affected tables from the beginning using the selected idempotent write strategy; prior quarantined row errors are marked resolved when those keys succeed.
 
 Because source and destination are separate PostgreSQL transactions, there is no distributed atomic commit. A worker crash after a destination commit but before metadata checkpoint persistence can replay the last batch. INSERT_ONLY/UPSERT are idempotent for the selected key, but counters may classify replayed rows as skipped rather than preserving the original attempt's insert/update classification.
 
@@ -86,6 +86,7 @@ This validation is exact for the mapped columns and primary-key ordering. It sca
 - GET .../runs/{run_id} — counters and status
 - GET .../runs/{run_id}/tables — per-table progress
 - GET .../runs/{run_id}/errors — row-level quarantined failures (up to 5,000)
+- POST .../runs/{run_id}/retry-errors — reprocess affected tables and retry quarantined rows
 - GET .../runs/{run_id}/events — queue, worker, batch and validation event history
 - POST .../runs/{run_id}/resume — resume failed/cancelled run from persisted checkpoint
 - POST .../runs/{run_id}/cancel — request cooperative cancellation
