@@ -12,7 +12,12 @@ from sqlalchemy import select
 from app.db.session import SessionLocal
 from app.models.connection import DatabaseConnection
 from app.models.migration_plan import MigrationColumnMapping, MigrationPlan, MigrationPlanTable
-from app.models.migration_run import (\n    MigrationRowError,\n    MigrationRun,\n    MigrationRunEvent,\n    MigrationRunTable,\n)
+from app.models.migration_run import (
+    MigrationRowError,
+    MigrationRun,
+    MigrationRunEvent,
+    MigrationRunTable,
+)
 from app.services.connection_service import decrypt_password
 
 
