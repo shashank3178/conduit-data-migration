@@ -139,7 +139,7 @@ Protected APIs use Auth0 access tokens for audience https://api.conduit.local. F
 - /projects/{project_id}/connections/{connection_id}/discover and /discovery
 - /projects/{project_id}/migration-plans (plan, selection, mapping, validation, DDL)
 - /projects/{project_id}/migration-plans/{plan_id}/runs (queue/list/status/table progress/cancel/resume)
-- /projects/{project_id}/migration-plans/{plan_id}/runs/{run_id}/errors (row-level rejects)
+- /projects/{project_id}/migration-plans/{plan_id}/runs/{run_id}/errors (row-level rejects) and /retry-errors (retry quarantined rows)
 - /projects/{project_id}/migration-plans/{plan_id}/runs/{run_id}/events (audit/telemetry)
 - /projects/{project_id}/migration-plans/{plan_id}/runs/{run_id}/report and /report.csv (JSON/CSV exports)
 
