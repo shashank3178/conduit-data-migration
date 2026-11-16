@@ -76,3 +76,15 @@ class MigrationRowError(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class MigrationRunEvent(Base):
+    __tablename__ = "migration_run_events"
+    __table_args__ = (Index("ix_migration_run_events_run_created", "run_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("migration_runs.id", ondelete="CASCADE"), nullable=False)
+    run_table_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("migration_run_tables.id", ondelete="CASCADE"))
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
