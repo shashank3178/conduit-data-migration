@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import ExecutionPanel from "./execution-panel";
 import {
   applyDestinationDDL,
   createMigrationPlan,
@@ -359,6 +360,7 @@ export default function MigrationPlanningClient({
         </>
       )}
 
+      {planId && <ExecutionPanel projectId={projectId} planId={planId} planStatus={plans.find((plan) => plan.id === planId)?.status ?? "draft"} />}
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
       {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</div>}
       {busy && <p className="text-sm text-slate-500">Working…</p>}
