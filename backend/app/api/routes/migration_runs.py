@@ -204,6 +204,42 @@ def resume_run(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID, db:
     return run
 
 
+
+@router.post("/{run_id}/retry-errors", response_model=MigrationRunResponse, status_code=status.HTTP_202_ACCEPTED)
+def retry_run_errors(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    run = _owned_run(db, user, project_id, plan_id, run_id)
+    if run.status != "partially_failed" or run.failed_rows == 0:
+        raise HTTPException(status_code=409, detail="This run has no quarantined row failures to retry.")
+    tables = db.query(MigrationRunTable).filter_by(run_id=run.id).all()
+    for table in tables:
+        if table.failed_rows:
+            table.last_key = None
+            table.status = "queued"
+            table.inserted_rows = 0
+            table.updated_rows = 0
+            table.skipped_rows = 0
+            table.migrated_rows = 0
+            table.failed_rows = 0
+            table.retry_count = 0
+            table.validation_status = "pending"
+            table.mismatch_rows = 0
+            table.error_message = None
+    run.inserted_rows = sum(table.inserted_rows for table in tables)
+    run.updated_rows = sum(table.updated_rows for table in tables)
+    run.skipped_rows = sum(table.skipped_rows for table in tables)
+    run.migrated_rows = sum(table.migrated_rows for table in tables)
+    run.failed_rows = sum(table.failed_rows for table in tables)
+    run.mismatch_rows = sum(table.mismatch_rows for table in tables)
+    run.completed_tables = sum(1 for table in tables if table.status == "completed")
+    run.validation_status = "pending"
+    run.status = "queued"
+    run.finished_at = None
+    run.error_message = None
+    db.add(MigrationRunEvent(run_id=run.id, event_type="row_errors_retry_queued", details={"tables_requeued": sum(1 for table in tables if table.status == "queued")}))
+    db.commit()
+    db.refresh(run)
+    return run
+
 @router.post("/{run_id}/cancel", response_model=MigrationRunResponse)
 def cancel_run(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     run = _owned_run(db, user, project_id, plan_id, run_id)
