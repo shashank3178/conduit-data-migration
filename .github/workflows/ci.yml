@@ -47,7 +47,7 @@ jobs:
       run:
         working-directory: frontend
     env:
-      AUTH0_SECRET: 0123456789012345678901234567890123456789012345678901234567890123
+      AUTH0_SECRET: "0123456789012345678901234567890123456789012345678901234567890123"
       APP_BASE_URL: http://localhost:3000
       AUTH0_DOMAIN: example.auth0.com
       AUTH0_CLIENT_ID: conduit-ci-client
@@ -63,7 +63,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend
         run: npm ci
-      - name: Lint frontend
+      - name: TypeScript check
         run: npm run lint
       - name: Build frontend
         run: npm run build
