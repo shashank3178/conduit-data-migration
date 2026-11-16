@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { cancelMigrationRun, getMigrationRun, getMigrationRunTables, listMigrationRuns, startMigrationRun } from "./execution-actions";
 
-const terminal = ["completed", "failed", "cancelled", "partially_failed"];
 type Run = { id: string; status: string; batch_size: number; total_tables: number; completed_tables: number; total_rows: number; migrated_rows: number; failed_rows: number; error_message?: string | null; created_at: string };
 
 export default function ExecutionPanel({ projectId, planId, planStatus }: { projectId: string; planId: string; planStatus: string }) {
