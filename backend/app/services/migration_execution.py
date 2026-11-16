@@ -169,6 +169,8 @@ def _write_with_isolation(destination, db, run, progress, table, destination_col
         with destination.transaction():
             result = _write_batch(destination, table, destination_columns, conflict_columns, rows, strategy)
         return (*result, 0)
+    except psycopg.OperationalError:
+        raise
     except psycopg.Error:
         inserted = updated = skipped = failed = 0
         with destination.transaction():
