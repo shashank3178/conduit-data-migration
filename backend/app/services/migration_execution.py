@@ -316,6 +316,9 @@ def execute_run(run_id: uuid.UUID) -> None:
                     continue
                 upper_key = _restore_key(progress.upper_key, key_meta)
                 last_key = _restore_key(progress.last_key, key_meta) if progress.last_key else None
+                retrying_errors = db.query(MigrationRowError.id).filter_by(
+                    run_table_id=progress.id, resolved_at=None
+                ).first() is not None
                 while True:
                     if _cancel_requested(run_id):
                         break
@@ -356,14 +359,16 @@ def execute_run(run_id: uuid.UUID) -> None:
                             destination = _connect(destination_record)
                     last_key = keys[-1]
                     progress.last_key = _json_key(last_key)
-                    failed_key_set = {tuple(_json_key(key)) for key in failed_keys}
-                    unresolved_errors = db.query(MigrationRowError).filter_by(
-                        run_table_id=progress.id, resolved_at=None
-                    ).all()
-                    for row_error in unresolved_errors:
-                        error_key = tuple(row_error.source_key.get(name) for name in source_pk)
-                        if error_key not in failed_key_set and error_key in {tuple(_json_key(key)) for key in keys}:
-                            row_error.resolved_at = datetime.now(UTC)
+                    if retrying_errors:
+                        failed_key_set = {tuple(_json_key(key)) for key in failed_keys}
+                        batch_key_set = {tuple(_json_key(key)) for key in keys}
+                        unresolved_errors = db.query(MigrationRowError).filter_by(
+                            run_table_id=progress.id, resolved_at=None
+                        ).all()
+                        for row_error in unresolved_errors:
+                            error_key = tuple(row_error.source_key.get(name) for name in source_pk)
+                            if error_key not in failed_key_set and error_key in batch_key_set:
+                                row_error.resolved_at = datetime.now(UTC)
                     progress.inserted_rows += inserted
                     progress.updated_rows += updated
                     progress.skipped_rows += skipped
