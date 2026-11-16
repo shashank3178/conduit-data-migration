@@ -1,5 +1,5 @@
 import os
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
@@ -9,7 +9,7 @@ os.environ.setdefault("AUTH0_DOMAIN", "example.auth0.com")
 os.environ.setdefault("AUTH0_AUDIENCE", "https://api.example.local")
 os.environ.setdefault("AUTH0_ISSUER", "https://example.auth0.com/")
 
-from app.services.migration_execution import _json_key, _restore_key, _validate_table, _write_batch  # noqa: E402
+from app.services.migration_execution import _json_key, _restore_key, _validate_table, _write_batch
 
 
 class FakeResult:
@@ -35,7 +35,7 @@ class FakeConnection:
 def test_checkpoint_key_round_trip_for_supported_postgres_types():
     identifier = uuid4()
     values = (42, Decimal("19.95"), identifier, date(2026, 11, 17),
-              datetime(2026, 11, 17, 10, 30, tzinfo=timezone.utc), "customer-1")
+              datetime(2026, 11, 17, 10, 30, tzinfo=UTC), "customer-1")
     metadata = [
         {"type": "BIGINT"}, {"type": "NUMERIC(10,2)"}, {"type": "UUID"},
         {"type": "DATE"}, {"type": "TIMESTAMP WITH TIME ZONE"}, {"type": "VARCHAR(80)"},
