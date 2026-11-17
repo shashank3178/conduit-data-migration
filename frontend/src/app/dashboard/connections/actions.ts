@@ -21,9 +21,14 @@ export async function createAndTestConnection(projectId: string, payload: {
     `/projects/${projectId}/connections`, token,
     { method: "POST", body: JSON.stringify(payload) },
   );
-  const test = await apiRequest<{ success: boolean; message: string; server_version?: string | null }>(
-    `/projects/${projectId}/connections/${connection.id}/test`, token,
-    { method: "POST" },
-  );
+  let test: { success: boolean; message: string; server_version?: string | null };
+  try {
+    test = await apiRequest<{ success: boolean; message: string; server_version?: string | null }>(
+      `/projects/${projectId}/connections/${connection.id}/test`, token,
+      { method: "POST" },
+    );
+  } catch (error) {
+    test = { success: false, message: error instanceof Error ? error.message : "Connection was saved, but the connectivity test failed." };
+  }
   return { connection, test };
 }
