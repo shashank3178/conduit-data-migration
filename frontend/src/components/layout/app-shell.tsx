@@ -30,7 +30,7 @@ export default function AppShell({
   const pathname = usePathname();
 
   return (
-    <div className="conduit-shell min-h-screen bg-[#f5f7fb] text-slate-900">
+    <div className="conduit-shell min-h-screen bg-white text-slate-900">
       <aside className="conduit-sidebar fixed inset-y-0 left-0 z-40 hidden w-[252px] flex-col border-r border-white/10 bg-[#101828] text-white lg:flex">
         <Link href="/dashboard" className="flex h-[76px] items-center gap-3 border-b border-white/10 px-6">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500 shadow-lg shadow-indigo-950/40">
