@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Activity, ArrowUpRight, Boxes, Cable, ChevronDown,
-  CircleHelp, Database, LayoutDashboard, LogOut, ShieldCheck, Sparkles, Workflow,
+  Activity, ArrowUpRight, Boxes, Cable, Database, LayoutDashboard, LogOut, ShieldCheck, Sparkles, Workflow,
 } from "lucide-react";
 
 const navigation = [
@@ -12,6 +11,7 @@ const navigation = [
     { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
     { label: "Projects", href: "/dashboard/projects", icon: Boxes },
     { label: "Connections", href: "/dashboard/connections", icon: Cable },
+    { label: "Discovery", href: "/dashboard/discovery", icon: Database },
   ]},
   { label: "Migrations", items: [
     { label: "Migration plans", href: "/dashboard/migration-planning", icon: Workflow },
@@ -41,17 +41,6 @@ export default function AppShell({
             <span className="block text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-400">Data migration</span>
           </span>
         </Link>
-
-        <div className="px-4 pt-6">
-          <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-400/15 text-indigo-300"><Boxes size={16}/></span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-xs font-semibold text-white">Workspace</span>
-              <span className="block truncate text-[11px] text-slate-400">Personal environment</span>
-            </span>
-            <ChevronDown size={14} className="text-slate-500"/>
-          </div>
-        </div>
 
         <nav className="flex-1 space-y-7 overflow-y-auto px-4 py-7">
           {navigation.map((group) => (
@@ -96,11 +85,6 @@ export default function AppShell({
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 sm:flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"/>
-              <span className="text-[11px] font-semibold text-emerald-700">Workspace active</span>
-            </div>
-            <button aria-label="Help" className="hidden h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 sm:flex"><CircleHelp size={17}/></button>
             <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-[11px] font-bold text-white">{(userLabel?.[0] ?? "U").toUpperCase()}</div>
               <div className="hidden max-w-[150px] sm:block">
