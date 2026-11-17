@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity, ArrowUpRight, Boxes, Cable, ChevronDown,
-  CircleHelp, Database, LayoutDashboard, LogOut, Sparkles, Workflow,
+  CircleHelp, Database, LayoutDashboard, LogOut, ShieldCheck, Sparkles, Workflow,
 } from "lucide-react";
 
 const navigation = [
