@@ -155,7 +155,7 @@ export default function DiscoveryClient({
       </section>
       <section className="conduit-card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:px-6">
-          <div><h2 className="text-sm font-semibold text-slate-900">Discovered objects</h2><p className="mt-1 text-xs text-slate-500">{snapshot.server_version ?? "Server version unavailable"}{snapshot.discovered_at ? ` · Completed ${new Date(snapshot.discovered_at).toLocaleString()}` : ""}</p></div>
+          <div><h2 className="text-sm font-semibold text-slate-900">Discovered objects</h2><p className="mt-1 text-xs text-slate-500">{snapshot.server_version ?? "Server version unavailable"}{snapshot.discovered_at ? ` · Completed ${new Date(snapshot.discovered_at).toLocaleString()}` : ""}</p></div><Link href="/dashboard/migration-planning" className="inline-flex items-center rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700">Continue to migration planning</Link>
           <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">{snapshot.status}</span>
         </div>
         <div className="grid gap-0 lg:grid-cols-[240px_minmax(0,1fr)]">
