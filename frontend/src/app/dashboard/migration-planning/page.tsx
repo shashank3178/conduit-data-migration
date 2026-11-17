@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth0 } from "@/lib/auth0";
 import { apiRequest } from "@/lib/api";
 import MigrationPlanningClient from "./planning-client";
+import AppShell from "@/components/layout/app-shell";
 
 interface Project {
   id: string;
@@ -38,31 +39,19 @@ export default async function MigrationPlanningPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <a href="/dashboard" className="text-xl font-bold">Conduit</a>
-          <a href="/dashboard" className="text-sm text-slate-600 hover:text-slate-900">Back to dashboard</a>
+    <AppShell userLabel={session.user.name ?? session.user.email}>
+      <div className="conduit-enter space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="conduit-eyebrow">Migration workspace</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">Migration planning</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Configure the source and destination, select tables, map columns, validate the plan, and prepare the target schema.</p>
+          </div>
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-xs text-indigo-800"><span className="font-semibold">Workflow</span><span className="ml-2 text-indigo-600">Configure → Map → Validate → Execute</span></div>
         </div>
-      </header>
-      <div className="mx-auto max-w-7xl px-6 py-8">
-        <div className="mb-8">
-          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Migration workflow</p>
-          <h1 className="mt-2 text-3xl font-bold">Migration planning</h1>
-          <p className="mt-2 max-w-3xl text-slate-600">
-            Configure a migration, select source tables, map columns, and prepare the destination schema.
-            No application rows are transferred in this phase.
-          </p>
-        </div>
-        {loadError && (
-          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{loadError}</div>
-        )}
-        <MigrationPlanningClient
-          projects={projects}
-          initialConnections={initialConnections}
-          initialPlans={initialPlans}
-        />
+        {loadError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{loadError}</div>}
+        <MigrationPlanningClient projects={projects} initialConnections={initialConnections} initialPlans={initialPlans} />
       </div>
-    </main>
+    </AppShell>
   );
 }
