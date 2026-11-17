@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowRight, ArrowUpRight, Boxes, Cable, CheckCircle2, CircleAlert,
-  Database, GitBranch, Plus, ShieldCheck, Sparkles, Workflow, Zap,
+  Database, GitBranch, Plus, ShieldCheck, Workflow, Zap,
 } from "lucide-react";
 import { auth0 } from "@/lib/auth0";
 import { apiRequest } from "@/lib/api";
@@ -63,26 +63,20 @@ export default async function DashboardPage() {
   return (
     <AppShell userLabel={userLabel}>
       <div className="conduit-enter space-y-8">
-        <section className="relative overflow-hidden rounded-[24px] bg-[#17233d] px-6 py-7 text-white shadow-[0_18px_50px_rgba(23,35,61,.14)] sm:px-8 sm:py-9">
-          <div className="conduit-grid-bg pointer-events-none absolute inset-0 opacity-50"/>
-          <div className="absolute -right-16 -top-28 h-72 w-72 rounded-full bg-indigo-500/25 blur-3xl"/>
-          <div className="absolute bottom-[-110px] right-[25%] h-64 w-64 rounded-full bg-sky-400/10 blur-3xl"/>
-          <div className="relative z-10 flex flex-col justify-between gap-7 lg:flex-row lg:items-end">
-            <div className="max-w-2xl">
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.07] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[.15em] text-indigo-200">
-                <Sparkles size={12}/> Migration command center
-              </div>
-              <h1 className="text-3xl font-semibold tracking-tight sm:text-[38px]">Move data with confidence.</h1>
-              <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">Orchestrate database migrations from discovery to validation. Your projects, connections, and migration plans live in one workspace.</p>
+        <section className="conduit-card flex flex-col justify-between gap-6 px-6 py-7 sm:flex-row sm:items-end sm:px-8 sm:py-8">
+          <div className="max-w-2xl">
+            <p className="conduit-eyebrow">Migration command center</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900 sm:text-[38px]">Move data with confidence.</h1>
+            <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">Orchestrate database migrations from discovery to validation. Your projects, connections, and migration plans live in one workspace.</p>
+            <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-500">
+              <span className="inline-flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${backendStatus === "Connected" ? "bg-emerald-500" : "bg-amber-500"}`}/>{backendStatus === "Connected" ? "API connected" : "API connection needs attention"}</span>
+              <span className="inline-flex items-center gap-2"><ShieldCheck size={13}/> Authenticated workspace</span>
+              <span className="inline-flex items-center gap-2"><Zap size={13}/> Batch-based execution</span>
             </div>
-            <Link href="/dashboard/migration-planning" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-lg transition hover:-translate-y-0.5 hover:bg-indigo-50">
-              <Plus size={16}/> Create migration plan <ArrowUpRight size={15}/>
-            </Link>
           </div>
-          <div className="relative z-10 mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-white/10 pt-5 text-xs text-slate-300">
-            <span className="inline-flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${backendStatus === "Connected" ? "bg-emerald-400" : "bg-amber-400"}`}/>{backendStatus === "Connected" ? "API connected" : "API connection needs attention"}</span>
-            <span className="inline-flex items-center gap-2"><ShieldCheck size={13}/> Authenticated workspace</span>
-            <span className="inline-flex items-center gap-2"><Zap size={13}/> Batch-based execution</span>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Link href="/dashboard/discovery" className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"><Database size={15}/> Discover databases</Link>
+            <Link href="/dashboard/migration-planning" className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"><Plus size={16}/> Create migration plan <ArrowUpRight size={15}/></Link>
           </div>
         </section>
 
