@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Database,
+  AlertCircle, CheckCircle2, ChevronRight, Database,
   Layers3, LoaderCircle, Play, RefreshCw, Search, ShieldCheck, Table2,
 } from "lucide-react";
 import {
