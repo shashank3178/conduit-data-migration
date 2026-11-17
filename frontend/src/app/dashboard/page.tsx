@@ -103,7 +103,7 @@ export default async function DashboardPage() {
             </div>
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               <WorkflowCard number="01" title="Connect databases" description="Register source and destination systems, then test connectivity." icon={<Cable size={18}/>} href="/dashboard/connections" action="Manage connections"/>
-              <WorkflowCard number="02" title="Discover & map" description="Inspect schemas, choose tables, and map source columns." icon={<Database size={18}/>} href="/dashboard/migration-planning" action="Open migration planner"/>
+              <WorkflowCard number="02" title="Discover databases" description="Verify connections and inspect schemas, tables, and columns." icon={<Database size={18}/>} href="/dashboard/discovery" action="Open discovery"/>
               <WorkflowCard number="03" title="Prepare & execute" description="Validate the plan, preview DDL, and queue a batch migration." icon={<Zap size={18}/>} href="/dashboard/migration-planning" action="Configure execution"/>
               <WorkflowCard number="04" title="Verify results" description="Review row outcomes, reconciliation, and downloadable reports." icon={<ShieldCheck size={18}/>} href="/dashboard/validation" action="View validation"/>
             </div>
