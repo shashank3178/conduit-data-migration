@@ -1,6 +1,7 @@
 pyproject.toml
 app/__init__.py
 app/main.py
+app/worker.py
 app/api/__init__.py
 app/api/dependencies.py
 app/api/routes/__init__.py
@@ -45,3 +46,5 @@ conduit_backend.egg-info/requires.txt
 conduit_backend.egg-info/top_level.txt
 tests/test_discovery_serialization.py
 tests/test_migration_ddl.py
+tests/test_migration_execution.py
+tests/test_migration_execution_postgres.py
