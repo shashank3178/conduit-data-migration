@@ -81,10 +81,15 @@ def _tuple_sql(columns):
 
 
 def _fetch_upper_key(source, table, pk_columns):
-    query = sql.SQL("SELECT {} FROM {}.{} ORDER BY {} DESC LIMIT 1").format(
+    order_by = sql.SQL(", ").join(
+        sql.SQL("{} DESC").format(sql.Identifier(name))
+        for name in pk_columns
+    )
+    query = sql.SQL("SELECT {} FROM {}.{} ORDER BY {} LIMIT 1").format(
         sql.SQL(", ").join(map(sql.Identifier, pk_columns)),
-        sql.Identifier(table.source_schema), sql.Identifier(table.source_table),
-        sql.SQL(", ").join(sql.SQL("{} DESC").format(sql.Identifier(name)) for name in pk_columns),
+        sql.Identifier(table.source_schema),
+        sql.Identifier(table.source_table),
+        order_by,
     )
     row = source.execute(query).fetchone()
     return tuple(row) if row else None
