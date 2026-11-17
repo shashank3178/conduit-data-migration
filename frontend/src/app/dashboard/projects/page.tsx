@@ -4,6 +4,7 @@ import { auth0 } from "@/lib/auth0";
 import { apiRequest } from "@/lib/api";
 import AppShell from "@/components/layout/app-shell";
 import { ArrowUpRight, Boxes, Cable, Plus, Workflow } from "lucide-react";
+import ProjectCreateForm from "./project-create-form";
 
 type Project = { id: string; name: string; status?: string; created_at?: string };
 type Connection = { id: string; role: "source" | "destination" };
@@ -32,6 +33,7 @@ export default async function ProjectsPage() {
     <div className="conduit-enter space-y-7">
       <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="conduit-eyebrow">Workspace</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Projects</h1><p className="mt-2 text-sm text-slate-500">Keep each migration initiative, its database connections, and plans organized.</p></div><Link href="/dashboard/migration-planning" className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-xs font-semibold text-white hover:bg-indigo-700"><Plus size={15}/> Start a migration <ArrowUpRight size={14}/></Link></div>
       {error && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>}
+      <ProjectCreateForm />
       <div className="grid gap-4 sm:grid-cols-3">
         <Summary label="Total projects" value={projects.length} icon={<Boxes size={18}/>} />
         <Summary label="Database connections" value={summaries.reduce((n,x)=>n+x.connections.length,0)} icon={<Cable size={18}/>} />
