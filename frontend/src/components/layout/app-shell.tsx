@@ -3,9 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Activity, ArrowUpRight, Boxes, Cable, CheckCircle2, ChevronDown,
-  CircleHelp, Database, LayoutDashboard, ListChecks, LogOut, Settings2,
-  ShieldCheck, Sparkles, Workflow, Zap,
+  Activity, ArrowUpRight, Boxes, Cable, ChevronDown,
+  CircleHelp, Database, LayoutDashboard, LogOut, Sparkles, Workflow,
 } from "lucide-react";
 
 const navigation = [
