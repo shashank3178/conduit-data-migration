@@ -137,11 +137,9 @@ export default async function DashboardPage() {
           </div>
           {projects.length ? <div className="divide-y divide-slate-100">
             {projects.slice(0,5).map((project) => {
-              const projectConnections = connections.filter((item) => true);
-              const projectPlans = plans.filter((item) => true);
               return <div key={project.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 transition hover:bg-slate-50/70 sm:px-6">
                 <div className="flex min-w-0 items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600"><Boxes size={18}/></span><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-800">{project.name}</p><p className="mt-0.5 text-[11px] text-slate-400">Project workspace · {project.status ?? "Active"}</p></div></div>
-                <div className="flex items-center gap-4"><span className="hidden text-xs text-slate-500 sm:inline">{projectConnections.length} connections</span><Link href="/dashboard/migration-planning" className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700">Open <ArrowUpRight size={13}/></Link></div>
+                <div className="flex items-center gap-4"><Link href="/dashboard/migration-planning" className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700">Open <ArrowUpRight size={13}/></Link></div>
               </div>;
             })}
           </div> : <div className="px-6 py-12 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-500"><Boxes size={21}/></div><p className="mt-3 text-sm font-semibold text-slate-800">No projects yet</p><p className="mt-1 text-xs text-slate-500">Create your first project to start organizing database migrations.</p><Link href="/dashboard/projects" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-indigo-700"><Plus size={14}/> Create project</Link></div>}
