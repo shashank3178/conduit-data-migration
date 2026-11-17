@@ -4,6 +4,7 @@ import { auth0 } from "@/lib/auth0";
 import { apiRequest } from "@/lib/api";
 import AppShell from "@/components/layout/app-shell";
 import { ArrowUpRight, Cable, Database, Server, ShieldCheck } from "lucide-react";
+import ConnectionCreateForm from "./connection-create-form";
 
 type Project = { id: string; name: string };
 type Connection = { id: string; name: string; role: "source" | "destination"; database: string; host: string; port: number; status?: string; db_type?: string };
@@ -12,11 +13,12 @@ export default async function ConnectionsPage() {
   const session = await auth0.getSession();
   if (!session) redirect("/auth/login?returnTo=/dashboard/connections");
   let rows: { project: Project; connection: Connection }[] = [];
+  let projects: Project[] = [];
   let error = "";
   try {
     const { token } = await auth0.getAccessToken();
     if (!token) throw new Error("No API access token was returned.");
-    const projects = await apiRequest<Project[]>("/projects", token, { cache: "no-store" });
+    projects = await apiRequest<Project[]>("/projects", token, { cache: "no-store" });
     const groups = await Promise.all(projects.map(async (project) => ({
       project,
       connections: await apiRequest<Connection[]>(`/projects/${project.id}/connections`, token, { cache: "no-store" }),
@@ -29,6 +31,7 @@ export default async function ConnectionsPage() {
     <div className="conduit-enter space-y-7">
       <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="conduit-eyebrow">Infrastructure</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Database connections</h1><p className="mt-2 text-sm text-slate-500">A unified view of the source and destination databases registered in your projects.</p></div><Link href="/dashboard/migration-planning" className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-xs font-semibold text-white hover:bg-indigo-700">Use in migration plan <ArrowUpRight size={14}/></Link></div>
       {error && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>}
+      <ConnectionCreateForm projects={projects} />
       <div className="grid gap-4 sm:grid-cols-3"><Stat label="All connections" value={rows.length} icon={<Cable size={18}/>} /><Stat label="Source systems" value={sources} icon={<Database size={18}/>} /><Stat label="Destination systems" value={targets} icon={<ShieldCheck size={18}/>} /></div>
       {rows.length ? <div className="grid gap-4 xl:grid-cols-2">{rows.map(({project,connection})=><article key={connection.id} className="conduit-card p-5 sm:p-6">
         <div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3"><span className={`flex h-11 w-11 items-center justify-center rounded-xl ${connection.role==="source"?"bg-sky-50 text-sky-700":"bg-violet-50 text-violet-700"}`}><Database size={20}/></span><div><h2 className="text-sm font-semibold text-slate-900">{connection.name}</h2><p className="mt-0.5 text-[11px] text-slate-400">{project.name}</p></div></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${connection.role==="source"?"bg-sky-50 text-sky-700":"bg-violet-50 text-violet-700"}`}>{connection.role}</span></div>
