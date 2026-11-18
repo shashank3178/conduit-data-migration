@@ -227,7 +227,7 @@ def get_run_metrics(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID
         "payload_bytes": sum(row.payload_bytes for row in batches),
         "committed_payload_bytes": sum(row.committed_payload_bytes for row in batches),
         "batch_count": len(batches),
-        "average_throughput_bytes_per_second": sum(row.throughput_bytes_per_second for row in batches) / len(batches) if batches else 0,
+        "average_throughput_bytes_per_second": sum(row.committed_payload_bytes for row in batches) / max(sum(row.duration_ms for row in batches) / 1000, 0.001) if batches else 0,
         "tables": [{
             "run_table_id": row.id, "schema": row.source_schema, "table": row.source_table,
             "total_rows": row.total_rows, "migrated_rows": row.migrated_rows,
