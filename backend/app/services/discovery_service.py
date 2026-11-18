@@ -134,9 +134,9 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
                     comment = inspector.get_table_comment(table_name, schema=schema_name).get("text")
                     size_stats = conn.execute(
                         text("""
-                            SELECT pg_total_relation_size(format('%I.%I', :schema, :table))::bigint AS total_bytes,
-                                   pg_table_size(format('%I.%I', :schema, :table))::bigint AS table_bytes,
-                                   pg_indexes_size(format('%I.%I', :schema, :table))::bigint AS index_bytes
+                            SELECT pg_total_relation_size(format('%I.%I', :schema, :table)::regclass)::bigint AS total_bytes,
+                                   pg_table_size(format('%I.%I', :schema, :table)::regclass)::bigint AS table_bytes,
+                                   pg_indexes_size(format('%I.%I', :schema, :table)::regclass)::bigint AS index_bytes
                         """),
                         {"schema": schema_name, "table": table_name},
                     ).mappings().one() if kind != "view" else {"total_bytes": 0, "table_bytes": 0, "index_bytes": 0}
