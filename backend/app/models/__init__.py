@@ -12,7 +12,18 @@ from app.models.project import Project
 from app.models.user import User
 
 __all__ = [
-    "DatabaseConnection", "DiscoveredSchema", "DiscoveredTable", "DiscoverySnapshot",
-    "MigrationColumnMapping", "MigrationPlan", "MigrationPlanTable", "MigrationBatch", "MigrationRowError",
-    "MigrationRun", "MigrationRunEvent", "MigrationRunTable", "Project", "User",
+    "DatabaseConnection",
+    "DiscoveredSchema",
+    "DiscoveredTable",
+    "DiscoverySnapshot",
+    "MigrationBatch",
+    "MigrationColumnMapping",
+    "MigrationPlan",
+    "MigrationPlanTable",
+    "MigrationRowError",
+    "MigrationRun",
+    "MigrationRunEvent",
+    "MigrationRunTable",
+    "Project",
+    "User",
 ]
