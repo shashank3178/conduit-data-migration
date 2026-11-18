@@ -210,6 +210,6 @@ The authenticated run APIs expose `/batches` and `/metrics`. The frontend provid
 - `/dashboard/runs` — auto-refreshing registry of runs across projects.
 - `/dashboard/runs/{run_id}?projectId=...&planId=...` — durable run-specific monitor with row, byte, table, batch, throughput, and event metrics.
 
-A run continues in the backend worker when the user navigates away or reloads the browser. Run state and telemetry are persisted in metadata PostgreSQL. Apply the new Alembic revision with `alembic upgrade head`.
+A run continues in the backend worker when the user navigates away or reloads the browser. Run state and telemetry are persisted in metadata PostgreSQL. Apply the new Alembic revision with `alembic upgrade head`. The run monitor is available from the Dashboard navigation and each queued run's detail link.
 
 The batch payload size is an application-level JSON serialization estimate, not exact PostgreSQL network traffic. Committed payload is apportioned from the batch estimate using inserted and updated row counts; ambiguous cross-database commit outcomes still require final reconciliation.
