@@ -198,3 +198,18 @@ Automated backend tests cover discovery serialization, DDL generation, checkpoin
 - [Migration execution](backend/MIGRATION_EXECUTION.md)
 
 Documentation uses product step/domain names rather than historical phase numbers.
+
+
+## Migration observability
+
+Discovery captures PostgreSQL database size plus per-table total, heap/TOAST, and index storage using PostgreSQL catalog size functions. These are point-in-time storage measurements; row estimates remain estimates until execution obtains exact table counts.
+
+Each committed worker batch persists its record count, inserted/updated/skipped/failed outcomes, UTF-8 JSON payload-size estimate, committed payload estimate, duration, and throughput. Payload measurements exclude PostgreSQL wire-protocol overhead and are intentionally distinguished from physical source/destination storage.
+
+The authenticated run APIs expose `/batches` and `/metrics`. The frontend provides:
+- `/dashboard/runs` — auto-refreshing registry of runs across projects.
+- `/dashboard/runs/{run_id}?projectId=...&planId=...` — durable run-specific monitor with row, byte, table, batch, throughput, and event metrics.
+
+A run continues in the backend worker when the user navigates away or reloads the browser. Run state and telemetry are persisted in metadata PostgreSQL. Apply the new Alembic revision with `alembic upgrade head`.
+
+The batch payload size is an application-level JSON serialization estimate, not exact PostgreSQL network traffic. Committed payload is apportioned from the batch estimate using inserted and updated row counts; ambiguous cross-database commit outcomes still require final reconciliation.
