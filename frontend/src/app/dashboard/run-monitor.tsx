@@ -10,6 +10,7 @@ export default function RunMonitor({projectId,planId,runId,initial}:{projectId:s
  const refresh=useCallback(async()=>{setBusy(true);try{setData(await loadRunMonitor(projectId,planId,runId));setUpdated(new Date())}finally{setBusy(false)}},[projectId,planId,runId]);
  useEffect(()=>{if(!active.has(data.run.status))return;const id=window.setInterval(()=>void refresh(),2500);return()=>window.clearInterval(id)},[data.run.status,refresh]);
  const run=data.run,m=data.metrics??{},rowPct=pct(run.migrated_rows,run.total_rows),bytePct=pct(m.committed_payload_bytes,m.selected_source_size_bytes),current=useMemo(()=>data.tables.find((t:any)=>t.status==="running"),[data.tables]);
+ const tableSizes=new Map((m.tables??[]).map((t:any)=>[t.run_table_id,t.size_bytes]));
  return <main className="min-h-screen bg-[#11100d] text-[#f2eadb]"><div className="run-artwash min-h-screen">
  <header className="border-b border-[#d9bd8a]/20 bg-[#15130f]/90"><div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4"><Link href="/dashboard" className="flex items-center gap-3"><img src="/conduit-logo.png" className="h-9 w-9 object-contain" alt="Conduit"/><b className="font-serif text-2xl tracking-wider">CONDUIT</b></Link><nav className="flex gap-5 text-sm"><Link href="/dashboard">Workspace</Link><Link href="/dashboard/runs">Live runs</Link></nav></div></header>
  <div className="mx-auto max-w-7xl px-5 py-10">
