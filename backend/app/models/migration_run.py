@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -61,6 +61,29 @@ class MigrationRunTable(Base):
     validation_status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
     mismatch_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class MigrationBatch(Base):
+    __tablename__ = "migration_batches"
+    __table_args__ = (
+        Index("ix_migration_batches_run_table_number", "run_table_id", "batch_number"),
+        Index("ix_migration_batches_run_created", "run_id", "created_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("migration_runs.id", ondelete="CASCADE"), nullable=False)
+    run_table_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("migration_run_tables.id", ondelete="CASCADE"), nullable=False)
+    batch_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    rows_read: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_inserted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    payload_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    committed_payload_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    throughput_bytes_per_second: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="completed")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class MigrationRowError(Base):
