@@ -28,5 +28,6 @@ export async function loadLiveRuns() {
       for(const run of items) runs.push({...run,projectId:project.id,projectName:project.name,planId:plan.id,planName:plan.name});
     }
   }
-  return runs.sort((a,b)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime());
+  const enriched = await Promise.all(runs.map(async (run) => ({ ...run, metrics: await apiRequest<any>(`/projects/${run.projectId}/migration-plans/${run.planId}/runs/${run.id}/metrics`, t, { cache: "no-store" }) })));
+  return enriched.sort((a,b)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime());
 }
