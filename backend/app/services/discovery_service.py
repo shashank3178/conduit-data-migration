@@ -64,6 +64,7 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
             inspector = inspect(conn)
             database_name = conn.execute(text("SELECT current_database()")).scalar_one()
             server_version = conn.execute(text("SELECT version()")).scalar_one().splitlines()[0][:255]
+            database_size_bytes = int(conn.execute(text("SELECT pg_database_size(current_database())")).scalar_one())
             schemas = sorted(inspector.get_schema_names())
             snapshot = db.query(DiscoverySnapshot).filter_by(connection_id=connection.id).first()
             if snapshot is None:
@@ -86,6 +87,7 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
                 db.flush()
 
             snapshot.server_version = server_version
+            snapshot.database_size_bytes = database_size_bytes
             schema_count = 0
             table_count = 0
             for schema_name in schemas:
@@ -130,6 +132,14 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
                     check_constraints = [_plain(item) for item in inspector.get_check_constraints(table_name, schema=schema_name)]
                     indexes = [_plain(item) for item in inspector.get_indexes(table_name, schema=schema_name)]
                     comment = inspector.get_table_comment(table_name, schema=schema_name).get("text")
+                    size_stats = conn.execute(
+                        text("""
+                            SELECT pg_total_relation_size(format('%I.%I', :schema, :table))::bigint AS total_bytes,
+                                   pg_table_size(format('%I.%I', :schema, :table))::bigint AS table_bytes,
+                                   pg_indexes_size(format('%I.%I', :schema, :table))::bigint AS index_bytes
+                        """),
+                        {"schema": schema_name, "table": table_name},
+                    ).mappings().one() if kind != "view" else {"total_bytes": 0, "table_bytes": 0, "index_bytes": 0}
                     estimate = conn.execute(
                         text(
                             """
@@ -149,6 +159,9 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
                             name=table_name,
                             table_type=kind,
                             estimated_rows=int(estimate) if estimate is not None else None,
+                            total_size_bytes=int(size_stats["total_bytes"]),
+                            table_size_bytes=int(size_stats["table_bytes"]),
+                            index_size_bytes=int(size_stats["index_bytes"]),
                             columns=columns,
                             primary_key=primary_key,
                             foreign_keys=foreign_keys,
@@ -228,6 +241,9 @@ def list_tables(
             "name": table.name,
             "table_type": table.table_type,
             "estimated_rows": table.estimated_rows,
+            "total_size_bytes": table.total_size_bytes,
+            "table_size_bytes": table.table_size_bytes,
+            "index_size_bytes": table.index_size_bytes,
         }
         for table, schema in query.order_by(DiscoveredSchema.name, DiscoveredTable.name).all()
     ]
