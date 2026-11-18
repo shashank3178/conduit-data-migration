@@ -8,8 +8,10 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
-from app.models.migration_plan import MigrationColumnMapping, MigrationPlanTable
+from app.models.migration_plan import MigrationColumnMapping, MigrationPlan, MigrationPlanTable
+from app.models.discovery import DiscoveredSchema, DiscoveredTable, DiscoverySnapshot
 from app.models.migration_run import (
+    MigrationBatch,
     MigrationRowError,
     MigrationRun,
     MigrationRunEvent,
@@ -185,6 +187,53 @@ def download_run_report_csv(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: u
         iter([output.getvalue()]), media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="conduit-run-{run.id}.csv"'},
     )
+
+
+@router.get("/{run_id}/batches")
+def get_run_batches(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
+                    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _owned_run(db, user, project_id, plan_id, run_id)
+    rows = db.query(MigrationBatch).filter_by(run_id=run_id).order_by(
+        MigrationBatch.created_at, MigrationBatch.batch_number
+    ).all()
+    return [{
+        "id": row.id, "run_table_id": row.run_table_id, "batch_number": row.batch_number,
+        "rows_read": row.rows_read, "rows_inserted": row.rows_inserted,
+        "rows_updated": row.rows_updated, "rows_skipped": row.rows_skipped,
+        "rows_failed": row.rows_failed, "payload_bytes": row.payload_bytes,
+        "committed_payload_bytes": row.committed_payload_bytes,
+        "duration_ms": row.duration_ms,
+        "throughput_bytes_per_second": row.throughput_bytes_per_second,
+        "status": row.status, "created_at": row.created_at,
+    } for row in rows]
+
+
+@router.get("/{run_id}/metrics")
+def get_run_metrics(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
+                    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    run = _owned_run(db, user, project_id, plan_id, run_id)
+    plan = db.get(MigrationPlan, run.plan_id)
+    snapshot = db.get(DiscoverySnapshot, plan.source_snapshot_id) if plan else None
+    run_tables = db.query(MigrationRunTable).filter_by(run_id=run_id).all()
+    discovered = db.query(DiscoveredTable, DiscoveredSchema.name).join(
+        DiscoveredSchema, DiscoveredTable.schema_id == DiscoveredSchema.id
+    ).filter(DiscoveredSchema.snapshot_id == plan.source_snapshot_id).all() if plan else []
+    sizes = {(schema, table.name): table.total_size_bytes for table, schema in discovered}
+    selected_size = sum(sizes.get((row.source_schema, row.source_table), 0) for row in run_tables)
+    batches = db.query(MigrationBatch).filter_by(run_id=run_id).all()
+    return {
+        "database_size_bytes": snapshot.database_size_bytes if snapshot else 0,
+        "selected_source_size_bytes": selected_size,
+        "payload_bytes": sum(row.payload_bytes for row in batches),
+        "committed_payload_bytes": sum(row.committed_payload_bytes for row in batches),
+        "batch_count": len(batches),
+        "average_throughput_bytes_per_second": sum(row.throughput_bytes_per_second for row in batches) / len(batches) if batches else 0,
+        "tables": [{
+            "run_table_id": row.id, "schema": row.source_schema, "table": row.source_table,
+            "total_rows": row.total_rows, "migrated_rows": row.migrated_rows,
+            "size_bytes": sizes.get((row.source_schema, row.source_table), 0), "status": row.status,
+        } for row in run_tables],
+    }
 
 
 @router.post("/{run_id}/resume", response_model=MigrationRunResponse, status_code=status.HTTP_202_ACCEPTED)
