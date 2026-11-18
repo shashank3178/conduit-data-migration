@@ -20,6 +20,7 @@ router = APIRouter(prefix="/projects/{project_id}/connections/{connection_id}", 
 def _run_response(snapshot, message="Database discovery completed successfully."):
     return {"snapshot_id": snapshot.id, "connection_id": snapshot.connection_id, "status": snapshot.status,
         "database_name": snapshot.database_name, "server_version": snapshot.server_version,
+        "database_size_bytes": snapshot.database_size_bytes,
         "schema_count": snapshot.schema_count, "table_count": snapshot.table_count,
         "discovered_at": snapshot.discovered_at, "message": message}
 
