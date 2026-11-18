@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,6 +18,7 @@ class DiscoverySnapshot(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     database_name: Mapped[str] = mapped_column(String(128), nullable=False)
     server_version: Mapped[str | None] = mapped_column(String(255))
+    database_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     schema_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     table_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     discovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -45,6 +46,9 @@ class DiscoveredTable(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     table_type: Mapped[str] = mapped_column(String(30), nullable=False, default="table")
     estimated_rows: Mapped[int | None] = mapped_column(Integer)
+    total_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    table_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    index_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     columns: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     primary_key: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     foreign_keys: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
