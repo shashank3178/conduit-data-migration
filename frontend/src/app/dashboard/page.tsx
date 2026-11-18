@@ -52,13 +52,13 @@ export default async function DashboardPage() {
   const user = session.user;
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <header className="border-b bg-white">
+    <main className="min-h-screen bg-[#10100e] text-[#f2eadb]">
+      <header className="border-b border-[#d9bd8a]/20 bg-[#15130f]/90">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-3 text-xl font-bold text-slate-900"><img src="/conduit-logo.png" alt="" className="h-8 w-8 object-contain" /> CONDUIT</Link>
 
           <div className="flex items-center gap-4">
-            <span className="text-sm text-slate-600">
+            <span className="text-sm text-[#d8c9ad]">
               {user.name ?? user.email}
             </span>
             <Link href="/dashboard/runs" className="text-sm font-semibold text-amber-800">Live runs</Link>
@@ -73,8 +73,8 @@ export default async function DashboardPage() {
       </header>
 
       <div className="mx-auto max-w-7xl px-6 py-10">
-        <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
-        <p className="mt-2 text-slate-600">
+        <p className="eyebrow">Your migration atelier</p><h1 className="display-title mt-3 font-serif text-6xl md:text-7xl">Make data <em>move.</em></h1>
+        <p className="mt-3 text-[#c7b99f]">
           Welcome back, {user.name ?? user.email}.
         </p>
 
