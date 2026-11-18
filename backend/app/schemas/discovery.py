@@ -12,6 +12,7 @@ class DiscoveryRunResponse(BaseModel):
     connection_id: uuid.UUID
     status: DiscoveryStatus
     database_name: str
+    database_size_bytes: int = 0
     server_version: str | None
     schema_count: int
     table_count: int
@@ -36,6 +37,9 @@ class TableSummaryResponse(BaseModel):
     name: str
     table_type: str
     estimated_rows: int | None
+    total_size_bytes: int = 0
+    table_size_bytes: int = 0
+    index_size_bytes: int = 0
 
 
 class TableDetailResponse(TableSummaryResponse):
