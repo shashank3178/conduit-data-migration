@@ -1,4 +1,5 @@
 """Durable keyset-paginated PostgreSQL migration execution."""
+import json
 import time
 import uuid
 from datetime import UTC, date, datetime
@@ -13,12 +14,18 @@ from app.db.session import SessionLocal
 from app.models.connection import DatabaseConnection
 from app.models.migration_plan import MigrationColumnMapping, MigrationPlan, MigrationPlanTable
 from app.models.migration_run import (
+    MigrationBatch,
     MigrationRowError,
     MigrationRun,
     MigrationRunEvent,
     MigrationRunTable,
 )
 from app.services.connection_service import decrypt_password
+
+
+def _payload_size_bytes(rows):
+    # UTF-8 JSON application payload estimate; excludes PostgreSQL wire-protocol overhead.
+    return len(json.dumps(rows, default=str, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
 def _event(db, run, event_type, run_table=None, **details):
@@ -327,6 +334,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                     run_table_id=progress.id, resolved_at=None
                 ).all()
                 retrying_errors = bool(unresolved_errors)
+                batch_number = db.query(MigrationBatch).filter_by(run_table_id=progress.id).count()
                 while True:
                     if _cancel_requested(run_id):
                         break
@@ -350,6 +358,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                         break
                     keys = [tuple(row[source_columns.index(name)] for name in source_pk) for row in batch]
                     batch_started = time.monotonic()
+                    payload_bytes = _payload_size_bytes(batch)
                     for attempt in range(run.max_retries + 1):
                         try:
                             inserted, updated, skipped, failed, failed_keys = _write_with_isolation(
@@ -385,7 +394,20 @@ def execute_run(run_id: uuid.UUID) -> None:
                     run.failed_rows += failed
                     run.migrated_rows += inserted + updated + skipped
                     run.heartbeat_at = datetime.now(UTC)
-                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, duration_ms=round((time.monotonic() - batch_started) * 1000, 2))
+                    duration_ms = round((time.monotonic() - batch_started) * 1000, 2)
+                    committed_rows = inserted + updated
+                    committed_payload_bytes = int(payload_bytes * committed_rows / len(batch)) if batch else 0
+                    throughput = committed_payload_bytes / max(duration_ms / 1000, 0.001)
+                    batch_number += 1
+                    db.add(MigrationBatch(
+                        run_id=run.id, run_table_id=progress.id, batch_number=batch_number,
+                        rows_read=len(batch), rows_inserted=inserted, rows_updated=updated,
+                        rows_skipped=skipped, rows_failed=failed, payload_bytes=payload_bytes,
+                        committed_payload_bytes=committed_payload_bytes, duration_ms=duration_ms,
+                        throughput_bytes_per_second=throughput,
+                        status="partially_failed" if failed else "completed",
+                    ))
+                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, payload_bytes=payload_bytes, committed_payload_bytes=committed_payload_bytes, throughput_bytes_per_second=round(throughput, 2), checkpoint=progress.last_key, duration_ms=duration_ms)
                     db.commit()
                 if _cancel_requested(run_id):
                     progress.status = "cancelled"
