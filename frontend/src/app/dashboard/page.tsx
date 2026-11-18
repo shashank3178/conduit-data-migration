@@ -55,14 +55,13 @@ export default async function DashboardPage() {
     <main className="min-h-screen bg-slate-50">
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link href="/" className="text-xl font-bold text-slate-900">
-            Conduit
-          </Link>
+          <Link href="/" className="flex items-center gap-3 text-xl font-bold text-slate-900"><img src="/conduit-logo.png" alt="" className="h-8 w-8 object-contain" /> CONDUIT</Link>
 
           <div className="flex items-center gap-4">
             <span className="text-sm text-slate-600">
               {user.name ?? user.email}
             </span>
+            <Link href="/dashboard/runs" className="text-sm font-semibold text-amber-800">Live runs</Link>
             <a
               href="/auth/logout"
               className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-100"
@@ -79,13 +78,14 @@ export default async function DashboardPage() {
           Welcome back, {user.name ?? user.email}.
         </p>
 
-        <div className="mt-5">
+        <div className="mt-5 flex flex-wrap gap-3">
           <Link
             href="/dashboard/migration-planning"
             className="inline-flex items-center rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
           >
             Open migration planning
           </Link>
+          <Link href="/dashboard/runs" className="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-100">Monitor live runs</Link>
         </div>
 
         <div className="mt-8 grid gap-6 md:grid-cols-3">
