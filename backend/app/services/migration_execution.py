@@ -397,7 +397,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                     duration_ms = round((time.monotonic() - batch_started) * 1000, 2)
                     committed_rows = inserted + updated
                     committed_payload_bytes = int(payload_bytes * committed_rows / len(batch)) if batch else 0
-                    throughput = committed_payload_bytes / max(duration_ms / 1000, 0.001)
+                    throughput = payload_bytes / max(duration_ms / 1000, 0.001)
                     batch_number += 1
                     db.add(MigrationBatch(
                         run_id=run.id, run_table_id=progress.id, batch_number=batch_number,
