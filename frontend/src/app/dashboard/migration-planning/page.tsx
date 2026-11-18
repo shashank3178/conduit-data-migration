@@ -38,17 +38,17 @@ export default async function MigrationPlanningPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="border-b bg-white">
+    <main className="run-artwash min-h-screen bg-[#10100e] text-[#f2eadb]">
+      <header className="border-b border-[#d9bd8a]/20 bg-[#15130f]/90">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <a href="/dashboard" className="flex items-center gap-3 text-xl font-bold"><img src="/conduit-logo.png" alt="" className="h-8 w-8 object-contain" />CONDUIT</a>
-          <nav className="flex items-center gap-5 text-sm text-slate-600"><a href="/dashboard/runs" className="hover:text-slate-900">Live runs</a><a href="/dashboard" className="hover:text-slate-900">Dashboard</a></nav>
+          <nav className="flex items-center gap-5 text-sm text-[#d8c9ad]"><a href="/dashboard/runs" className="hover:text-slate-900">Live runs</a><a href="/dashboard" className="hover:text-slate-900">Dashboard</a></nav>
         </div>
       </header>
       <div className="mx-auto max-w-7xl px-6 py-8">
         <div className="mb-8">
-          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Migration workflow</p>
-          <h1 className="mt-2 text-3xl font-bold">Migration planning</h1>
+          <p className="eyebrow">Migration workflow / Configure the transfer</p>
+          <h1 className="display-title mt-2 font-serif text-5xl font-bold md:text-6xl">Migration planning</h1>
           <p className="mt-2 max-w-3xl text-slate-600">
             Configure a migration, select source tables, map columns, and prepare the destination schema.
             No application rows are transferred in this phase.
