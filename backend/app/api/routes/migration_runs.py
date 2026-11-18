@@ -8,8 +8,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
-from app.models.migration_plan import MigrationColumnMapping, MigrationPlan, MigrationPlanTable
 from app.models.discovery import DiscoveredSchema, DiscoveredTable, DiscoverySnapshot
+from app.models.migration_plan import MigrationColumnMapping, MigrationPlan, MigrationPlanTable
 from app.models.migration_run import (
     MigrationBatch,
     MigrationRowError,
