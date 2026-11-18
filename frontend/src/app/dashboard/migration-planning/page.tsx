@@ -41,8 +41,8 @@ export default async function MigrationPlanningPage() {
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <a href="/dashboard" className="text-xl font-bold">Conduit</a>
-          <a href="/dashboard" className="text-sm text-slate-600 hover:text-slate-900">Back to dashboard</a>
+          <a href="/dashboard" className="flex items-center gap-3 text-xl font-bold"><img src="/conduit-logo.png" alt="" className="h-8 w-8 object-contain" />CONDUIT</a>
+          <nav className="flex items-center gap-5 text-sm text-slate-600"><a href="/dashboard/runs" className="hover:text-slate-900">Live runs</a><a href="/dashboard" className="hover:text-slate-900">Dashboard</a></nav>
         </div>
       </header>
       <div className="mx-auto max-w-7xl px-6 py-8">
