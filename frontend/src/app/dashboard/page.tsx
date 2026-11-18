@@ -3,165 +3,42 @@ import Link from "next/link";
 import { auth0 } from "@/lib/auth0";
 import { apiRequest } from "@/lib/api";
 
-interface BackendUser {
-  id: string;
-  auth0_sub: string;
-  email: string | null;
-  created_at: string;
-}
-
-interface Project {
-  id: string;
-  name: string;
-  status: string;
-}
+interface BackendUser { id: string; auth0_sub: string; email: string | null; created_at: string; }
+interface Project { id: string; name: string; status: string; }
 
 export default async function DashboardPage() {
   const session = await auth0.getSession();
-
-  if (!session) {
-    redirect("/auth/login?returnTo=/dashboard");
-  }
-
-  let backendStatus = "Not connected";
-  let backendUser: BackendUser | null = null;
-  let projectCount = 0;
-  let apiError: string | null = null;
-
+  if (!session) redirect("/auth/login?returnTo=/dashboard");
+  let backendStatus = "Not connected", backendUser: BackendUser | null = null, projectCount = 0, apiError: string | null = null;
   try {
     const { token } = await auth0.getAccessToken();
-
-    if (!token) {
-      throw new Error("Auth0 did not return an API access token.");
-    }
-
+    if (!token) throw new Error("Auth0 did not return an API access token.");
     const [me, projects] = await Promise.all([
       apiRequest<BackendUser>("/users/me", token, { cache: "no-store" }),
       apiRequest<Project[]>("/projects", token, { cache: "no-store" }),
     ]);
-
-    backendUser = me;
-    projectCount = projects.length;
-    backendStatus = "Connected";
-  } catch (error) {
-    backendStatus = "Connection failed";
-    apiError =
-      error instanceof Error ? error.message : "Unknown API error";
-  }
-
+    backendUser = me; projectCount = projects.length; backendStatus = "Connected";
+  } catch (error) { backendStatus = "Connection failed"; apiError = error instanceof Error ? error.message : "Unknown API error"; }
   const user = session.user;
-
   return (
-    <main className="min-h-screen bg-[#10100e] text-[#f2eadb]">
+    <main className="run-artwash min-h-screen text-[#f2eadb]">
       <header className="border-b border-[#d9bd8a]/20 bg-[#15130f]/90">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center gap-3 text-xl font-bold text-slate-900"><img src="/conduit-logo.png" alt="" className="h-8 w-8 object-contain" /> CONDUIT</Link>
-
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-[#d8c9ad]">
-              {user.name ?? user.email}
-            </span>
-            <Link href="/dashboard/runs" className="text-sm font-semibold text-amber-800">Live runs</Link>
-            <a
-              href="/auth/logout"
-              className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-100"
-            >
-              Logout
-            </a>
-          </div>
+          <Link href="/" className="flex items-center gap-3 font-serif text-2xl tracking-[.16em]"><img src="/conduit-logo.png" alt="" className="h-9 w-9 object-contain"/>CONDUIT</Link>
+          <div className="flex items-center gap-5"><span className="hidden text-sm text-[#d8c9ad] sm:inline">{user.name ?? user.email}</span><Link href="/dashboard/runs" className="text-sm text-[#d7b77f]">Live runs ↗</Link><a href="/auth/logout" className="rounded-full border border-[#c8a66f]/35 px-4 py-2 text-sm text-[#d8c9ad] hover:bg-[#c8a66f]/10">Logout</a></div>
         </div>
       </header>
-
-      <div className="mx-auto max-w-7xl px-6 py-10">
-        <p className="eyebrow">Your migration atelier</p><h1 className="display-title mt-3 font-serif text-6xl md:text-7xl">Make data <em>move.</em></h1>
-        <p className="mt-3 text-[#c7b99f]">
-          Welcome back, {user.name ?? user.email}.
-        </p>
-
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Link
-            href="/dashboard/migration-planning"
-            className="inline-flex items-center rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
-          >
-            Open migration planning
-          </Link>
-          <Link href="/dashboard/runs" className="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-100">Monitor live runs</Link>
+      <div className="mx-auto max-w-7xl px-6 py-12">
+        <p className="eyebrow">Your migration atelier / Workspace</p>
+        <h1 className="display-title mt-4 font-serif text-6xl leading-none md:text-8xl">Make data <em>move.</em></h1>
+        <p className="mt-5 max-w-2xl text-[#c7b99f]">Welcome back, {user.name ?? user.email}. Your migration workspace is ready.</p>
+        <div className="mt-8 flex flex-wrap gap-3"><Link href="/dashboard/migration-planning" className="bg-[#c8a66f] px-6 py-3 text-sm font-bold uppercase tracking-wider text-[#211b13] hover:bg-[#dec18f]">Open migration planning ↗</Link><Link href="/dashboard/runs" className="border border-[#c8a66f]/45 px-6 py-3 text-sm font-semibold text-[#ead8b9] hover:bg-[#c8a66f]/10">Monitor all runs</Link></div>
+        <div className="mt-12 grid gap-4 md:grid-cols-3">
+          <section className="metric-tile"><span>Authentication</span><strong className="!text-3xl">Verified</strong><p className="text-sm text-[#b9aa90]">Auth0 session established</p></section>
+          <section className="metric-tile"><span>Backend API</span><strong className="!text-3xl">{backendStatus}</strong><p className="text-sm text-[#b9aa90]">Authenticated FastAPI connection</p>{apiError && <p className="break-words text-xs text-red-300">{apiError}</p>}</section>
+          <section className="metric-tile"><span>Migration projects</span><strong>{projectCount.toLocaleString()}</strong><p className="text-sm text-[#b9aa90]">Projects in your account</p></section>
         </div>
-
-        <div className="mt-8 grid gap-6 md:grid-cols-3">
-          <section className="rounded-xl border bg-white p-6 shadow-sm">
-            <h2 className="font-semibold text-slate-900">Authentication</h2>
-            <p className="mt-3 text-green-600">Authenticated</p>
-            <p className="mt-2 text-sm text-slate-500">
-              Auth0 session established.
-            </p>
-          </section>
-
-          <section className="rounded-xl border bg-white p-6 shadow-sm">
-            <h2 className="font-semibold text-slate-900">Backend API</h2>
-            <p
-              className={`mt-3 ${
-                backendStatus === "Connected" ? "text-green-600" : "text-red-600"
-              }`}
-            >
-              {backendStatus}
-            </p>
-            <p className="mt-2 text-sm text-slate-500">
-              Authenticated FastAPI requests to the current-user and projects
-              endpoints.
-            </p>
-            {apiError && (
-              <p className="mt-3 break-words text-xs text-red-600">{apiError}</p>
-            )}
-          </section>
-
-          <section className="rounded-xl border bg-white p-6 shadow-sm">
-            <h2 className="font-semibold text-slate-900">Migration Projects</h2>
-            <p className="mt-3 text-3xl font-bold text-slate-900">
-              {projectCount}
-            </p>
-            <p className="mt-2 text-sm text-slate-500">
-              Projects owned by your authenticated account.
-            </p>
-          </section>
-        </div>
-
-        <section className="mt-8 rounded-xl border bg-white p-6 shadow-sm">
-          <h2 className="font-semibold text-slate-900">Backend User Profile</h2>
-          {backendUser ? (
-            <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-slate-500">User ID</dt>
-                <dd className="mt-1 break-all font-medium text-slate-900">
-                  {backendUser.id}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-slate-500">Email</dt>
-                <dd className="mt-1 font-medium text-slate-900">
-                  {backendUser.email ?? "Not provided by Auth0"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-slate-500">Auth0 subject</dt>
-                <dd className="mt-1 break-all font-medium text-slate-900">
-                  {backendUser.auth0_sub}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-slate-500">Account created</dt>
-                <dd className="mt-1 font-medium text-slate-900">
-                  {new Date(backendUser.created_at).toLocaleString()}
-                </dd>
-              </div>
-            </dl>
-          ) : (
-            <p className="mt-3 text-sm text-slate-500">
-              The backend profile is unavailable until the API connection
-              succeeds.
-            </p>
-          )}
-        </section>
+        <section className="panel-dark mt-6 p-7"><p className="eyebrow">Account / Identity</p><h2 className="mt-2 font-serif text-3xl">Workspace profile</h2>{backendUser ? <dl className="mt-6 grid gap-5 text-sm sm:grid-cols-2"><div><dt className="text-[#aa9b81]">User ID</dt><dd className="mt-1 break-all">{backendUser.id}</dd></div><div><dt className="text-[#aa9b81]">Email</dt><dd className="mt-1">{backendUser.email ?? "Not provided by Auth0"}</dd></div><div><dt className="text-[#aa9b81]">Auth0 subject</dt><dd className="mt-1 break-all">{backendUser.auth0_sub}</dd></div><div><dt className="text-[#aa9b81]">Account created</dt><dd className="mt-1">{new Date(backendUser.created_at).toLocaleString()}</dd></div></dl> : <p className="mt-4 text-sm text-[#b9aa90]">Backend profile unavailable until the API connection succeeds.</p>}</section>
       </div>
     </main>
   );
