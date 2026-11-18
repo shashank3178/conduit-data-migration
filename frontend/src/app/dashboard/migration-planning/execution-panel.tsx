@@ -47,7 +47,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
     try {
       const run = await startMigrationRun(projectId, planId, batchSize, writeStrategy);
       setSelected(run);
-      await refresh();
+      window.location.assign(`/dashboard/runs/${run.id}?projectId=${projectId}&planId=${planId}`);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not queue migration."); }
     finally { setBusy(false); }
   }
@@ -98,7 +98,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
 
   const percent = selected?.total_rows ? Math.min(100, Math.round(selected.migrated_rows / selected.total_rows * 100)) : 0;
   return <section className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
-    <div><p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Data execution</p><h2 className="mt-1 text-lg font-semibold">5. Run migration</h2>
+    <div><p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Data execution</p><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="mt-1 text-lg font-semibold">5. Run migration</h2><a href="/dashboard/runs" className="text-sm font-semibold text-amber-700 hover:underline">Open live runs ↗</a></div>
       <p className="mt-1 text-sm text-slate-600">Queue a durable migration job. A separate backend worker processes queued jobs and persists checkpoints.</p></div>
     <div className="flex flex-wrap items-end gap-3">
       <label className="text-sm">Batch size <select value={batchSize} onChange={(e) => setBatchSize(Number(e.target.value))} className="ml-2 rounded border p-2"><option value={500}>500</option><option value={1000}>1,000</option><option value={2500}>2,500</option><option value={5000}>5,000</option><option value={10000}>10,000</option></select></label>
