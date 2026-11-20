@@ -1,10 +1,9 @@
 """Idempotent migration metrics and PostgreSQL storage measurements."""
 import hashlib
 import json
-
-import psycopg
 from datetime import UTC, datetime
 
+import psycopg
 from sqlalchemy import func
 
 from app.models.migration_metrics import (
