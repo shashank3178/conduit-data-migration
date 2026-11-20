@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
     analytics,
-    database_metrics,
     connections,
+    database_metrics,
     discovery,
     health,
     migration_plans,

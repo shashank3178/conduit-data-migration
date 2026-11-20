@@ -1,6 +1,8 @@
 """Idempotent migration metrics and PostgreSQL storage measurements."""
 import hashlib
 import json
+
+import psycopg
 from datetime import UTC, datetime
 
 from sqlalchemy import func
@@ -96,7 +98,7 @@ def _database_size(connection):
         with connection.transaction():
             row = connection.execute("SELECT pg_database_size(current_database())").fetchone()
         return int(row[0]) if row else None
-    except Exception:  # Metrics must not fail a data migration.
+    except psycopg.Error:  # Metrics must not fail a data migration.
         return None
 
 
@@ -122,7 +124,7 @@ def _relation_size(connection, schema, table):
                 (schema, table),
             ).fetchone()
         return int(row[0]) if row and row[0] is not None else None
-    except Exception:  # A missing relation or insufficient catalog privilege is non-fatal.
+    except psycopg.Error:  # A missing relation or insufficient catalog privilege is non-fatal.
         return None
 
 def record_table_storage_snapshot(db, run, progress, source, destination):
