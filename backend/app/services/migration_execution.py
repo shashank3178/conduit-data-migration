@@ -19,6 +19,10 @@ from app.models.migration_run import (
     MigrationRunTable,
 )
 from app.services.connection_service import decrypt_password
+from app.services.migration_metrics_service import (
+    ensure_run_metric, finish_run_metric, record_committed_batch,
+    record_database_snapshot, record_table_storage_snapshot,
+)
 
 
 def _event(db, run, event_type, run_table=None, **details):
@@ -261,7 +265,7 @@ def _validate_table(source, destination, table, source_columns, destination_colu
                 destination_row = next(destination_rows, None)
     return mismatch
 
-def execute_run(run_id: uuid.UUID) -> None:
+def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
     source = destination = None
     with SessionLocal() as db:
         run = db.get(MigrationRun, run_id)
@@ -274,15 +278,20 @@ def execute_run(run_id: uuid.UUID) -> None:
             db.commit()
             return
         run.status = "running"
+        run.worker_id = worker_id or run.worker_id
         run.started_at = run.started_at or datetime.now(UTC)
         run.heartbeat_at = datetime.now(UTC)
-        _event(db, run, "worker_started", write_strategy=run.write_strategy, batch_size=run.batch_size)
+        _event(db, run, "worker_started", worker_id=run.worker_id, write_strategy=run.write_strategy, batch_size=run.batch_size)
+        ensure_run_metric(db, run)
         db.commit()
         try:
             source_record = db.get(DatabaseConnection, plan.source_connection_id)
             destination_record = db.get(DatabaseConnection, plan.destination_connection_id)
             source = _connect(source_record)
             destination = _connect(destination_record)
+            record_database_snapshot(db, run, source_record, "source", source)
+            record_database_snapshot(db, run, destination_record, "destination", destination)
+            db.commit()
             tables = db.query(MigrationPlanTable).filter_by(plan_id=plan.id, selected=True).order_by(
                 MigrationPlanTable.source_schema, MigrationPlanTable.source_table
             ).all()
@@ -350,6 +359,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                         break
                     keys = [tuple(row[source_columns.index(name)] for name in source_pk) for row in batch]
                     batch_started = time.monotonic()
+                    checkpoint_start = list(last_key) if last_key is not None else None
                     for attempt in range(run.max_retries + 1):
                         try:
                             inserted, updated, skipped, failed, failed_keys = _write_with_isolation(
@@ -385,7 +395,12 @@ def execute_run(run_id: uuid.UUID) -> None:
                     run.failed_rows += failed
                     run.migrated_rows += inserted + updated + skipped
                     run.heartbeat_at = datetime.now(UTC)
-                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, duration_ms=round((time.monotonic() - batch_started) * 1000, 2))
+                    duration_ms = round((time.monotonic() - batch_started) * 1000, 2)
+                    record_committed_batch(
+                        db, run, progress, batch, inserted, updated, skipped, failed,
+                        checkpoint_start, progress.last_key, duration_ms,
+                    )
+                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, duration_ms=duration_ms)
                     db.commit()
                 if _cancel_requested(run_id):
                     progress.status = "cancelled"
@@ -401,6 +416,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                 progress.mismatch_rows = mismatch
                 progress.validation_status = "passed" if mismatch == 0 else "failed"
                 run.mismatch_rows += mismatch
+                record_table_storage_snapshot(db, run, progress, source, destination)
                 _event(db, run, "validation_finished", progress, mismatch_rows=mismatch, validation_status=progress.validation_status)
                 db.commit()
 
@@ -410,6 +426,9 @@ def execute_run(run_id: uuid.UUID) -> None:
             run.finished_at = datetime.now(UTC)
             run.heartbeat_at = datetime.now(UTC)
             _event(db, run, "run_finished", status=run.status, inserted=run.inserted_rows, updated=run.updated_rows, skipped=run.skipped_rows, failed=run.failed_rows, mismatches=run.mismatch_rows)
+            record_database_snapshot(db, run, source_record, "source", source)
+            record_database_snapshot(db, run, destination_record, "destination", destination)
+            finish_run_metric(db, run)
             db.commit()
         except Exception as exc:  # noqa: BLE001 - persist terminal state for any worker failure
             db.rollback()
@@ -419,6 +438,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                 failed_run.error_message = f"Migration execution failed ({type(exc).__name__})."
                 failed_run.finished_at = datetime.now(UTC)
                 _event(db, failed_run, "run_failed", error_type=type(exc).__name__)
+                finish_run_metric(db, failed_run)
                 db.commit()
         finally:
             if source:
@@ -427,7 +447,7 @@ def execute_run(run_id: uuid.UUID) -> None:
                 destination.close()
 
 
-def claim_next_run():
+def claim_next_run(worker_id: str | None = None):
     """Claim one queued job atomically; multiple worker processes can share the queue."""
     with SessionLocal() as db:
         run = db.execute(select(MigrationRun).where(MigrationRun.status == "queued")
@@ -436,8 +456,9 @@ def claim_next_run():
         if run is None:
             return None
         run.status = "running"
+        run.worker_id = worker_id
         run.heartbeat_at = datetime.now(UTC)
-        db.add(MigrationRunEvent(run_id=run.id, event_type="worker_claimed", details={}))
+        db.add(MigrationRunEvent(run_id=run.id, event_type="worker_claimed", details={"worker_id": worker_id} if worker_id else {}))
         db.commit()
         return run.id
 
@@ -453,6 +474,7 @@ def recover_stale_runs(stale_after_seconds: int = 600):
         ).all()
         for run in stale:
             run.status = "queued"
+            run.worker_id = None
             run.error_message = "Worker heartbeat expired; queued for checkpoint recovery."
         db.commit()
         return len(stale)

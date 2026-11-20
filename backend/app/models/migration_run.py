@@ -10,7 +10,7 @@ from app.db.base import Base
 
 class MigrationRun(Base):
     __tablename__ = "migration_runs"
-    __table_args__ = (Index("ix_migration_runs_project_owner", "project_id", "owner_id"),)
+    __table_args__ = (Index("ix_migration_runs_project_owner", "project_id", "owner_id"), Index("ix_migration_runs_worker_status", "worker_id", "status"))
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)

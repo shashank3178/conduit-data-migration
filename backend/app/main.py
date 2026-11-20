@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
+    analytics,
+    database_metrics,
     connections,
     discovery,
     health,
@@ -26,6 +28,8 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
+app.include_router(database_metrics.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(projects.router, prefix="/api/v1")
 app.include_router(connections.router, prefix="/api/v1")
