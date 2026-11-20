@@ -1,9 +1,9 @@
 """Idempotent migration metrics and PostgreSQL storage measurements."""
 import hashlib
 import json
+from datetime import UTC, datetime
 
 import psycopg
-from datetime import UTC, datetime
 
 from sqlalchemy import func
 
