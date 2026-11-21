@@ -2,7 +2,8 @@
 import logging
 import time
 import uuid
-from datetime import UTC, date, datetime, time as datetime_time
+from datetime import UTC, date, datetime
+from datetime import time as datetime_time
 from decimal import Decimal
 from uuid import UUID as PyUUID
 
@@ -453,7 +454,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
             record_database_snapshot(db, run, destination_record, "destination", destination)
             finish_run_metric(db, run)
             db.commit()
-        except Exception as exc:  # noqa: BLE001 - persist terminal state for any worker failure
+        except Exception as exc:
             logger.exception("Migration run %s failed", run_id)
             db.rollback()
             failed_run = db.get(MigrationRun, run_id)
