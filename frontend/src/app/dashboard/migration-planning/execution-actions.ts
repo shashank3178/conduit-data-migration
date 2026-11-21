@@ -55,3 +55,11 @@ export async function retryMigrationRunErrors(projectId: string, planId: string,
   const endpoint = "/projects/" + projectId + "/migration-plans/" + planId + "/runs/" + runId + "/retry-errors";
   return apiRequest<any>(endpoint, await token(), { method: "POST" });
 }
+
+export async function getMigrationPlanMetrics(projectId: string, planId: string) {
+  return apiRequest<any>(
+    `/projects/${projectId}/migration-plans/${planId}/metrics`,
+    await token(),
+    { cache: "no-store" },
+  );
+}

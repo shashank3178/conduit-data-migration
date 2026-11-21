@@ -1,15 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   cancelMigrationRun, downloadMigrationRunCsv, getMigrationRun, getMigrationRunErrors,
   getMigrationRunEvents, getMigrationRunReport, getMigrationRunTables, listMigrationRuns, resumeMigrationRun, retryMigrationRunErrors,
-  startMigrationRun,
+  startMigrationRun, getMigrationPlanMetrics,
 } from "./execution-actions";
 
 type Run = {
   id: string; status: string; batch_size: number; write_strategy: "INSERT_ONLY" | "UPSERT";
   total_tables: number; completed_tables: number; total_rows: number; migrated_rows: number;
+  worker_id?: string | null; heartbeat_at?: string | null; started_at?: string | null;
   inserted_rows: number; updated_rows: number; skipped_rows: number; failed_rows: number;
   validation_status: string; mismatch_rows: number; error_message?: string | null; created_at: string;
 };
@@ -24,10 +25,28 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
   const [events, setEvents] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [planMetrics, setPlanMetrics] = useState<any>(null);
+  const [metricsBusy, setMetricsBusy] = useState(false);
+
+  async function refreshMetrics() {
+    setMetricsBusy(true);
+    try { setPlanMetrics(await getMigrationPlanMetrics(projectId, planId)); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not load database size metadata."); }
+    finally { setMetricsBusy(false); }
+  }
+
+  useEffect(() => {
+    let active = true;
+    getMigrationPlanMetrics(projectId, planId)
+      .then((result) => { if (active) setPlanMetrics(result); })
+      .catch((e) => { if (active) setError(e instanceof Error ? e.message : "Could not load database size metadata."); });
+    return () => { active = false; };
+  }, [projectId, planId]);
 
   async function refresh() {
     setBusy(true); setError("");
     try {
+      await refreshMetrics();
       const latest = await listMigrationRuns(projectId, planId);
       setRuns(latest);
       const current = selected ? latest.find((item) => item.id === selected.id) ?? latest[0] : latest[0];
@@ -45,6 +64,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
   async function start() {
     setBusy(true); setError("");
     try {
+      await refreshMetrics();
       const run = await startMigrationRun(projectId, planId, batchSize, writeStrategy);
       setSelected(run);
       await refresh();
@@ -96,10 +116,58 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
     finally { setBusy(false); }
   }
 
+  useEffect(() => {
+    if (!selected || !["queued", "running", "cancel_requested"].includes(selected.status)) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const latest = await listMigrationRuns(projectId, planId);
+        setRuns(latest);
+        const current = latest.find((item) => item.id === selected.id);
+        if (current) {
+          const detail = await getMigrationRun(projectId, planId, current.id);
+          setSelected(detail);
+          setTableProgress(await getMigrationRunTables(projectId, planId, current.id));
+          setRowErrors(await getMigrationRunErrors(projectId, planId, current.id));
+          setEvents(await getMigrationRunEvents(projectId, planId, current.id));
+        }
+      } catch (e) { setError(e instanceof Error ? e.message : "Live status refresh failed."); }
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [projectId, planId, selected?.id, selected?.status]);
+
+  const formatBytes = (value: number | null | undefined) => {
+    if (value == null) return "Unavailable";
+    if (value < 1024) return `${value} B`;
+    const units = ["KB", "MB", "GB", "TB"];
+    let amount = value / 1024;
+    let index = 0;
+    while (amount >= 1024 && index < units.length - 1) { amount /= 1024; index += 1; }
+    return `${amount.toFixed(2)} ${units[index]}`;
+  };
   const percent = selected?.total_rows ? Math.min(100, Math.round(selected.migrated_rows / selected.total_rows * 100)) : 0;
   return <section className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
     <div><p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Data execution</p><h2 className="mt-1 text-lg font-semibold">5. Run migration</h2>
       <p className="mt-1 text-sm text-slate-600">Queue a durable migration job. A separate backend worker processes queued jobs and persists checkpoints.</p></div>
+    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div><h3 className="text-sm font-semibold text-slate-800">Database & table footprint</h3><p className="mt-1 text-xs text-slate-500">Live PostgreSQL storage measurements and discovery metadata. Row counts are estimates.</p></div>
+        <button disabled={metricsBusy} onClick={refreshMetrics} className="rounded-lg border bg-white px-3 py-2 text-xs font-medium disabled:opacity-50">{metricsBusy ? "Measuring…" : "Refresh measurements"}</button>
+      </div>
+      {planMetrics && <>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border bg-white p-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Source · {planMetrics.source?.database ?? "Database"}</p><p className="mt-1 text-xl font-semibold">{formatBytes(planMetrics.source?.physical_bytes)}</p><p className="text-xs text-slate-500">{planMetrics.source?.name}</p>{planMetrics.source?.error && <p className="mt-2 text-xs text-amber-700">{planMetrics.source.error}</p>}</div>
+          <div className="rounded-lg border bg-white p-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Destination · {planMetrics.destination?.database ?? "Database"}</p><p className="mt-1 text-xl font-semibold">{formatBytes(planMetrics.destination?.physical_bytes)}</p><p className="text-xs text-slate-500">{planMetrics.destination?.name}</p>{planMetrics.destination?.error && <p className="mt-2 text-xs text-amber-700">{planMetrics.destination.error}</p>}</div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div><p className="text-xs text-slate-500">Selected tables</p><p className="font-semibold">{planMetrics.summary?.selected_tables ?? 0} / {planMetrics.summary?.candidate_tables ?? 0}</p></div>
+          <div><p className="text-xs text-slate-500">Estimated source rows</p><p className="font-semibold">{(planMetrics.summary?.estimated_source_rows ?? 0).toLocaleString()}</p></div>
+          <div><p className="text-xs text-slate-500">Measured</p><p className="font-semibold text-xs">{planMetrics.measured_at ? new Date(planMetrics.measured_at).toLocaleString() : "—"}</p></div>
+          <div><p className="text-xs text-slate-500">Size semantics</p><p className="font-semibold text-xs">Includes indexes / TOAST</p></div>
+        </div>
+        <div className="mt-3 max-h-64 overflow-auto rounded-lg border bg-white"><table className="w-full min-w-[760px] text-left text-xs"><thead className="sticky top-0 border-b bg-slate-100 text-slate-600"><tr><th className="p-2">Table</th><th className="p-2">Selected</th><th className="p-2">Est. rows</th><th className="p-2">Columns / mapped</th><th className="p-2">PK columns</th><th className="p-2">Source size</th><th className="p-2">Target size</th></tr></thead><tbody>{(planMetrics.tables ?? []).map((item:any) => <tr key={item.id} className="border-b last:border-0"><td className="p-2 font-medium">{item.source}</td><td className="p-2">{item.selected ? "Yes" : "No"}</td><td className="p-2">{item.estimated_rows?.toLocaleString() ?? "—"}</td><td className="p-2">{item.column_count} / {item.mapped_columns}</td><td className="p-2">{item.primary_key_columns?.join(", ") || "Missing"}</td><td className="p-2">{formatBytes(item.source_physical_bytes)}</td><td className="p-2">{formatBytes(item.destination_physical_bytes)}</td></tr>)}</tbody></table></div>
+      </>}
+      {!planMetrics && <p className="mt-3 text-xs text-slate-500">Loading database and table measurements…</p>}
+    </div>
     <div className="flex flex-wrap items-end gap-3">
       <label className="text-sm">Batch size <select value={batchSize} onChange={(e) => setBatchSize(Number(e.target.value))} className="ml-2 rounded border p-2"><option value={500}>500</option><option value={1000}>1,000</option><option value={2500}>2,500</option><option value={5000}>5,000</option><option value={10000}>10,000</option></select></label>
       <div className="w-full">
@@ -141,7 +209,9 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
         <div><span className="text-slate-500">Validation</span><p className="font-semibold">{selected.validation_status} ({selected.mismatch_rows} mismatches)</p></div>
         <div><span className="text-slate-500">Strategy</span><p className="font-semibold">{selected.write_strategy}</p></div>
       </div>
-      {selected.error_message && <p className="text-sm text-red-700">{selected.error_message}</p>}
+      {selected.status === "queued" && <p className="rounded bg-amber-50 p-3 text-xs text-amber-800">This run is queued and has not yet been claimed by a worker. Confirm that <code>python -m app.worker</code> is running against the same metadata database. The page refreshes status automatically.</p>}
+      {selected.status === "running" && <p className="text-xs text-slate-500">Worker: {selected.worker_id ?? "claiming"} · Last heartbeat: {selected.heartbeat_at ? new Date(selected.heartbeat_at).toLocaleString() : "not reported"}</p>}
+      {selected.error_message && <p className="rounded bg-red-50 p-3 text-sm text-red-700">{selected.error_message}</p>}
       <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="border-b text-slate-500"><tr><th className="p-2">Source</th><th className="p-2">Destination</th><th className="p-2">Status</th><th className="p-2">Inserted</th><th className="p-2">Updated</th><th className="p-2">Skipped</th><th className="p-2">Failed</th><th className="p-2">Validation</th></tr></thead><tbody>{tableProgress.map((t:any)=><tr key={t.id} className="border-b"><td className="p-2">{t.source_schema}.{t.source_table}</td><td className="p-2">{t.destination_schema}.{t.destination_table}</td><td className="p-2">{t.status}</td><td className="p-2">{t.inserted_rows.toLocaleString()}</td><td className="p-2">{t.updated_rows.toLocaleString()}</td><td className="p-2">{t.skipped_rows.toLocaleString()}</td><td className="p-2">{t.failed_rows.toLocaleString()}</td><td className="p-2">{t.validation_status}: {t.mismatch_rows}</td></tr>)}</tbody></table></div>
       {events.length > 0 && <div className="space-y-2"><h3 className="text-sm font-semibold">Execution activity</h3><ol className="max-h-40 space-y-1 overflow-auto rounded border p-3 text-xs">{events.slice(-100).reverse().map((item:any)=><li key={item.id} className="flex justify-between gap-3 border-b py-1 last:border-0"><span>{item.event_type.replaceAll('_',' ')} {item.details?.duration_ms ? '· ' + item.details.duration_ms + ' ms' : ''}</span><time className="shrink-0 text-slate-500">{new Date(item.created_at).toLocaleString()}</time></li>)}</ol></div>}
       {rowErrors.length > 0 && <div className="space-y-2"><h3 className="text-sm font-semibold">Row-level errors (first {rowErrors.length})</h3><div className="max-h-56 overflow-auto rounded border"><table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-50"><tr><th className="p-2">Source key</th><th className="p-2">Error</th><th className="p-2">Attempts</th></tr></thead><tbody>{rowErrors.map((item:any)=><tr key={item.id} className="border-t"><td className="p-2">{JSON.stringify(item.source_key)}</td><td className="p-2">{item.error_message}</td><td className="p-2">{item.attempts}</td></tr>)}</tbody></table></div></div>}
