@@ -204,6 +204,12 @@ def _record_row_error(db, run, progress, key, key_columns, exc):
         ))
 
 
+def _is_row_level_write_error(exc: psycopg.Error) -> bool:
+    """Only isolate data/integrity failures; schema, permission and SQL errors fail the run."""
+    state = getattr(exc, "sqlstate", None) or ""
+    return state.startswith(("22", "23"))
+
+
 def _write_with_isolation(destination, db, run, progress, table, destination_columns,
                           conflict_columns, key_columns, rows, keys, strategy):
     try:
@@ -212,7 +218,9 @@ def _write_with_isolation(destination, db, run, progress, table, destination_col
         return (*result, 0, [])
     except psycopg.OperationalError:
         raise
-    except psycopg.Error:
+    except psycopg.Error as exc:
+        if not _is_row_level_write_error(exc):
+            raise
         inserted = updated = skipped = failed = 0
         failed_keys = []
         with destination.transaction():
