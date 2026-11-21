@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import psycopg
 from fastapi import HTTPException
+from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -383,7 +384,11 @@ def update_column_mappings(
     )
 
 
-def validate_plan(db: Session, plan: MigrationPlan):
+def validate_plan(
+    db: Session,
+    plan: MigrationPlan,
+    destination_schema_names: set[str] | None = None,
+):
     selected = db.query(MigrationPlanTable).filter_by(plan_id=plan.id, selected=True).all()
     errors: list[str] = []
     warnings: list[str] = []
@@ -391,12 +396,13 @@ def validate_plan(db: Session, plan: MigrationPlan):
     if not selected:
         errors.append("Select at least one source table.")
 
-    destination_schema_names = {
-        name
-        for (name,) in db.query(DiscoveredSchema.name)
-        .filter(DiscoveredSchema.snapshot_id == plan.destination_snapshot_id)
-        .all()
-    }
+    if destination_schema_names is None:
+        destination_schema_names = {
+            name
+            for (name,) in db.query(DiscoveredSchema.name)
+            .filter(DiscoveredSchema.snapshot_id == plan.destination_snapshot_id)
+            .all()
+        }
     targets: set[tuple[str, str]] = set()
     for table in selected:
         if (
@@ -497,14 +503,76 @@ def preview_ddl(db: Session, plan: MigrationPlan):
     }
 
 
-def apply_ddl(db: Session, user: User, project_id: uuid.UUID, plan: MigrationPlan):
-    validation = validate_plan(db, plan)
-    if not validation["valid"]:
-        raise HTTPException(
-            status_code=409,
-            detail={"message": "Migration plan is not valid.", **validation},
+def _refresh_destination_targets(
+    db: Session,
+    plan: MigrationPlan,
+    remote,
+) -> set[str]:
+    """Refresh selected target tables against the live destination, not an old snapshot."""
+    inspector = sqlalchemy_inspect(remote)
+    live_schemas = set(inspector.get_schema_names())
+    tables_by_schema: dict[str, set[str]] = {}
+    for schema_name in {row.destination_schema for row in (
+        db.query(MigrationPlanTable)
+        .filter_by(plan_id=plan.id, selected=True)
+        .all()
+    )}:
+        if schema_name in live_schemas:
+            tables_by_schema[schema_name] = set(
+                inspector.get_table_names(schema=schema_name)
+            )
+
+    selected = (
+        db.query(MigrationPlanTable)
+        .filter_by(plan_id=plan.id, selected=True)
+        .all()
+    )
+    for table in selected:
+        exists = table.destination_table in tables_by_schema.get(
+            table.destination_schema, set()
         )
-    preview = preview_ddl(db, plan)
+        table.destination_exists = exists
+        if not exists:
+            table.destination_table_id = None
+            table.destination_columns = []
+            continue
+
+        live_columns = inspector.get_columns(
+            table.destination_table,
+            schema=table.destination_schema,
+        )
+        destination_columns = [
+            {
+                "name": column["name"],
+                "type": str(column["type"]),
+                "nullable": column.get("nullable", True),
+                "default": column.get("default"),
+                "identity": column.get("identity"),
+                "computed": column.get("computed"),
+            }
+            for column in live_columns
+        ]
+        table.destination_columns = destination_columns
+        destination_by_name = _columns_by_name(destination_columns)
+        mappings = (
+            db.query(MigrationColumnMapping)
+            .filter_by(plan_table_id=table.id)
+            .all()
+        )
+        for mapping in mappings:
+            target = destination_by_name.get(mapping.destination_column)
+            if target is None:
+                continue
+            mapping.destination_type = str(target["type"])
+            mapping.compatible = types_compatible(
+                mapping.source_type,
+                mapping.destination_type,
+            )
+
+    return live_schemas
+
+
+def apply_ddl(db: Session, user: User, project_id: uuid.UUID, plan: MigrationPlan):
     from app.services.discovery_service import _engine_for
 
     connection = connection_service.get_connection(
@@ -513,8 +581,24 @@ def apply_ddl(db: Session, user: User, project_id: uuid.UUID, plan: MigrationPla
     engine = _engine_for(connection)
     failed_statement_index = None
     failed_statement = None
+    preview = None
     try:
         with engine.begin() as remote:
+            live_schema_names = _refresh_destination_targets(db, plan, remote)
+            validation = validate_plan(
+                db,
+                plan,
+                destination_schema_names=live_schema_names,
+            )
+            if not validation["valid"]:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"message": "Migration plan is not valid.", **validation},
+                )
+
+            # Rebuild DDL only after reconciling the plan with the live destination.
+            # This prevents stale discovery snapshots from creating existing tables.
+            preview = preview_ddl(db, plan)
             for index, statement in enumerate(preview["statements"], start=1):
                 failed_statement_index = index
                 failed_statement = statement
