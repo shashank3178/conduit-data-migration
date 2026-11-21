@@ -1,9 +1,12 @@
 """Durable keyset-paginated PostgreSQL migration execution."""
+import logging
 import time
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time as datetime_time
 from decimal import Decimal
 from uuid import UUID as PyUUID
+
+logger = logging.getLogger(__name__)
 
 import psycopg
 from psycopg import sql
@@ -76,6 +79,12 @@ def _restore_key(values, columns):
             restored.append(date.fromisoformat(value))
         elif "TIMESTAMP" in kind:
             restored.append(datetime.fromisoformat(value))
+        elif "BOOL" in kind:
+            restored.append(bool(value))
+        elif any(token in kind for token in ("REAL", "FLOAT", "DOUBLE")):
+            restored.append(float(value))
+        elif kind.startswith("TIME"):
+            restored.append(datetime_time.fromisoformat(value))
         elif any(token in kind for token in ("CHAR", "TEXT", "NAME")):
             restored.append(str(value))
         else:
@@ -165,6 +174,17 @@ def _write_batch(destination, table, destination_columns, conflict_columns, rows
     return inserted, 0, len(rows) - inserted
 
 
+def _execution_error_detail(exc: Exception) -> str:
+    """Return actionable database diagnostics without exposing connection credentials."""
+    if isinstance(exc, psycopg.Error):
+        primary = getattr(getattr(exc, "diag", None), "message_primary", None)
+        state = getattr(exc, "sqlstate", None)
+        detail = primary or "PostgreSQL operation failed."
+        prefix = f"SQLSTATE {state}: " if state else ""
+        return f"{prefix}{detail}"[:1000]
+    return str(exc)[:1000] or type(exc).__name__
+
+
 def _record_row_error(db, run, progress, key, key_columns, exc):
     source_key = {name: value for name, value in zip(key_columns, _json_key(key), strict=True)}
     existing = db.query(MigrationRowError).filter_by(
@@ -173,12 +193,12 @@ def _record_row_error(db, run, progress, key, key_columns, exc):
     if existing:
         existing.attempts += 1
         existing.error_type = type(exc).__name__
-        existing.error_message = f"Destination row write failed ({type(exc).__name__})."
+        existing.error_message = _execution_error_detail(exc)
     else:
         db.add(MigrationRowError(
             run_id=run.id, run_table_id=progress.id, source_key=source_key,
             error_type=type(exc).__name__,
-            error_message=f"Destination row write failed ({type(exc).__name__}).",
+            error_message=_execution_error_detail(exc),
             attempts=1,
         ))
 
@@ -434,11 +454,15 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
             finish_run_metric(db, run)
             db.commit()
         except Exception as exc:  # noqa: BLE001 - persist terminal state for any worker failure
+            logger.exception("Migration run %s failed", run_id)
             db.rollback()
             failed_run = db.get(MigrationRun, run_id)
             if failed_run:
                 failed_run.status = "failed"
-                failed_run.error_message = f"Migration execution failed ({type(exc).__name__})."
+                failed_run.error_message = (
+                    f"Migration execution failed ({type(exc).__name__}): "
+                    f"{_execution_error_detail(exc)}"
+                )[:1200]
                 failed_run.finished_at = datetime.now(UTC)
                 _event(db, failed_run, "run_failed", error_type=type(exc).__name__)
                 finish_run_metric(db, failed_run)
