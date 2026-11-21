@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -19,6 +20,8 @@ from app.schemas.migration_plan import (
 from app.services import connection_service, project_service
 from app.services.connection_service import decrypt_password
 from app.services.migration_ddl import build_ddl, normalize_pg_type, types_compatible
+
+logger = logging.getLogger(__name__)
 
 
 def _columns_by_name(columns: list[dict]) -> dict[str, dict]:
@@ -508,11 +511,39 @@ def apply_ddl(db: Session, user: User, project_id: uuid.UUID, plan: MigrationPla
         db, user, project_id, plan.destination_connection_id
     )
     engine = _engine_for(connection)
+    failed_statement_index = None
+    failed_statement = None
     try:
         with engine.begin() as remote:
-            for statement in preview["statements"]:
+            for index, statement in enumerate(preview["statements"], start=1):
+                failed_statement_index = index
+                failed_statement = statement
                 remote.exec_driver_sql(statement)
     except SQLAlchemyError as exc:
+        original = getattr(exc, "orig", None)
+        diagnostic = getattr(original, "diag", None)
+        sqlstate = (
+            getattr(original, "sqlstate", None)
+            or getattr(original, "pgcode", None)
+        )
+        database_message = (
+            getattr(diagnostic, "message_primary", None)
+            or str(original or exc)
+        )
+        logger.exception(
+            "Destination DDL preparation failed",
+            extra={
+                "migration_plan_id": str(plan.id),
+                "destination_connection_id": str(connection.id),
+                "destination_database": connection.database,
+                "ddl_statement_index": failed_statement_index,
+                "ddl_statement": failed_statement,
+                "postgres_sqlstate": sqlstate,
+                "postgres_message": database_message,
+                "postgres_detail": getattr(diagnostic, "message_detail", None),
+                "postgres_hint": getattr(diagnostic, "message_hint", None),
+            },
+        )
         raise HTTPException(
             status_code=502,
             detail=f"Destination schema preparation failed ({type(exc).__name__}). No migration rows were transferred.",
