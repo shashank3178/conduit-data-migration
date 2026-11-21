@@ -52,12 +52,7 @@ def test_checkpoint_rejects_unsupported_or_null_key_types():
     else:
         raise AssertionError("NULL primary-key checkpoint must be rejected")
 
-    try:
-        _restore_key([True], [{"type": "BOOLEAN"}])
-    except ValueError as exc:
-        assert "Unsupported" in str(exc)
-    else:
-        raise AssertionError("Unsupported primary-key types must be rejected")
+    assert _restore_key([True], [{"type": "BOOLEAN"}]) == (True,)
 
 
 def test_insert_only_counts_conflicts_as_skipped():
@@ -117,3 +112,11 @@ def test_streaming_reconciliation_counts_missing_extra_and_changed_rows():
         ["id"], ["id"], 2,
     )
     assert mismatch == 3
+
+
+def test_checkpoint_restores_float_and_time_primary_keys():
+    from datetime import time
+
+    values = (12.5, time(9, 30, 15))
+    metadata = [{"type": "DOUBLE PRECISION"}, {"type": "TIME"}]
+    assert _restore_key(_json_key(values), metadata) == values
