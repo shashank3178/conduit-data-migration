@@ -22,8 +22,30 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(`API Error ${response.status}: ${message}`);
+    const responseBody = await response.text();
+    let message = `Request failed (${response.status}).`;
+
+    if (responseBody) {
+      try {
+        const payload = JSON.parse(responseBody) as {
+          detail?: string | { message?: string };
+          message?: string;
+        };
+        if (typeof payload.detail === "string") {
+          message = payload.detail;
+        } else if (payload.detail && typeof payload.detail.message === "string") {
+          message = payload.detail.message;
+        } else if (typeof payload.message === "string") {
+          message = payload.message;
+        } else {
+          message = responseBody;
+        }
+      } catch {
+        message = responseBody;
+      }
+    }
+
+    throw new Error(message);
   }
 
   if (response.status === 204) {
