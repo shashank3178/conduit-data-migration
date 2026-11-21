@@ -1,9 +1,13 @@
 import uuid
+from datetime import UTC, datetime
+
+import psycopg
 
 from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.models.connection import DatabaseConnection
 from app.models.discovery import DiscoveredSchema, DiscoveredTable, DiscoverySnapshot
 from app.models.migration_plan import MigrationColumnMapping, MigrationPlan, MigrationPlanTable
 from app.models.user import User
@@ -14,6 +18,7 @@ from app.schemas.migration_plan import (
     TableSelectionUpdate,
 )
 from app.services import connection_service, project_service
+from app.services.connection_service import decrypt_password
 from app.services.migration_ddl import build_ddl, normalize_pg_type, types_compatible
 
 
@@ -545,4 +550,79 @@ def apply_ddl(db: Session, user: User, project_id: uuid.UUID, plan: MigrationPla
         "success": True,
         "message": "Destination schema statements were applied successfully. No row data was transferred.",
         **preview,
+    }
+
+
+def _measure_connection(record: DatabaseConnection, tables: list[MigrationPlanTable]):
+    """Collect best-effort physical sizes; metrics never block plan inspection."""
+    result = {"name": record.name, "database": record.database, "physical_bytes": None, "error": None}
+    table_sizes = {}
+    try:
+        with psycopg.connect(
+            host=record.host,
+            port=record.port,
+            dbname=record.database,
+            user=record.username,
+            password=decrypt_password(record.password_encrypted),
+            sslmode=record.sslmode,
+            connect_timeout=8,
+            application_name="Conduit plan metrics",
+        ) as remote:
+            size = remote.execute("SELECT pg_database_size(current_database())").fetchone()
+            result["physical_bytes"] = int(size[0]) if size and size[0] is not None else None
+            for table in tables:
+                schema = table.source_schema if record.role == "source" else table.destination_schema
+                name = table.source_table if record.role == "source" else table.destination_table
+                row = remote.execute(
+                    "SELECT pg_total_relation_size(to_regclass(format('%I.%I', %s, %s)))",
+                    (schema, name),
+                ).fetchone()
+                table_sizes[str(table.id)] = int(row[0]) if row and row[0] is not None else None
+    except psycopg.Error as exc:
+        primary = getattr(getattr(exc, "diag", None), "message_primary", None)
+        state = getattr(exc, "sqlstate", None) or type(exc).__name__
+        result["error"] = f"PostgreSQL {state}: {primary or 'size measurement unavailable'}"
+    return result, table_sizes
+
+
+def get_plan_metrics(db: Session, plan: MigrationPlan):
+    """Return live database/table storage and plan metadata for the execution screen."""
+    source_record = db.get(DatabaseConnection, plan.source_connection_id)
+    destination_record = db.get(DatabaseConnection, plan.destination_connection_id)
+    tables = db.query(MigrationPlanTable).filter_by(plan_id=plan.id).order_by(
+        MigrationPlanTable.source_schema, MigrationPlanTable.source_table
+    ).all()
+    source, source_sizes = _measure_connection(source_record, tables)
+    destination, destination_sizes = _measure_connection(destination_record, tables)
+    table_metrics = []
+    for table in tables:
+        mapped_columns = db.query(MigrationColumnMapping).filter_by(
+            plan_table_id=table.id, included=True
+        ).count()
+        table_metrics.append({
+            "id": str(table.id),
+            "source": f"{table.source_schema}.{table.source_table}",
+            "destination": f"{table.destination_schema}.{table.destination_table}",
+            "table_type": table.source_table_type,
+            "selected": table.selected,
+            "destination_exists": table.destination_exists,
+            "estimated_rows": table.estimated_rows,
+            "column_count": len(table.source_columns or []),
+            "primary_key_columns": (table.source_primary_key or {}).get("constrained_columns") or [],
+            "mapped_columns": mapped_columns,
+            "source_physical_bytes": source_sizes.get(str(table.id)),
+            "destination_physical_bytes": destination_sizes.get(str(table.id)),
+        })
+    return {
+        "measured_at": datetime.now(UTC),
+        "source": source,
+        "destination": destination,
+        "summary": {
+            "candidate_tables": len(tables),
+            "selected_tables": sum(1 for table in tables if table.selected),
+            "estimated_source_rows": sum(table.estimated_rows or 0 for table in tables if table.selected),
+            "source_physical_bytes": source["physical_bytes"],
+            "destination_physical_bytes": destination["physical_bytes"],
+        },
+        "tables": table_metrics,
     }

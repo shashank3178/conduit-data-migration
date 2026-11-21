@@ -62,6 +62,17 @@ def update_plan(
     return migration_plan_service.update_plan(db, plan, payload)
 
 
+@router.get("/{plan_id}/metrics")
+def get_plan_metrics(
+    project_id: uuid.UUID,
+    plan_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    plan = migration_plan_service.get_plan(db, user, project_id, plan_id)
+    return migration_plan_service.get_plan_metrics(db, plan)
+
+
 @router.get("/{plan_id}/tables", response_model=list[PlanTableResponse])
 def list_tables(
     project_id: uuid.UUID,
