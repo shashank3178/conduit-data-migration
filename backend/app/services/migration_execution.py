@@ -53,7 +53,7 @@ def _cancel_requested(run_id: uuid.UUID) -> bool:
 def _json_key(values):
     result = []
     for value in values:
-        if isinstance(value, (datetime, date)):
+        if isinstance(value, (datetime, date, datetime_time)):
             result.append(value.isoformat())
         elif isinstance(value, (Decimal, PyUUID)):
             result.append(str(value))
