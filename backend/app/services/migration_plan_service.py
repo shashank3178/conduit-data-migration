@@ -531,18 +531,20 @@ def apply_ddl(db: Session, user: User, project_id: uuid.UUID, plan: MigrationPla
             or str(original or exc)
         )
         logger.exception(
-            "Destination DDL preparation failed",
-            extra={
-                "migration_plan_id": str(plan.id),
-                "destination_connection_id": str(connection.id),
-                "destination_database": connection.database,
-                "ddl_statement_index": failed_statement_index,
-                "ddl_statement": failed_statement,
-                "postgres_sqlstate": sqlstate,
-                "postgres_message": database_message,
-                "postgres_detail": getattr(diagnostic, "message_detail", None),
-                "postgres_hint": getattr(diagnostic, "message_hint", None),
-            },
+            (
+                "Destination DDL preparation failed: plan_id=%s "
+                "destination_connection_id=%s database=%s statement_index=%s "
+                "sqlstate=%s database_message=%s detail=%s hint=%s statement=%r"
+            ),
+            str(plan.id),
+            str(connection.id),
+            connection.database,
+            failed_statement_index,
+            sqlstate,
+            database_message,
+            getattr(diagnostic, "message_detail", None),
+            getattr(diagnostic, "message_hint", None),
+            failed_statement,
         )
         raise HTTPException(
             status_code=502,
