@@ -264,6 +264,7 @@ export default function MigrationPlanningClient({
           <span className="text-xs text-slate-500">Both connections must have completed Phase 3 discovery.</span>
         </div>
         {connections.length === 0 && <p className="mt-3 text-sm text-amber-700">No database connections found for this project.</p>}
+        {!planId && error && <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
       </section>
 
       {planId && (
@@ -356,12 +357,12 @@ export default function MigrationPlanningClient({
               </div>
             )}
             <p className="mt-4 text-xs text-slate-500">Applying DDL creates missing schemas and tables only. It does not drop, truncate, or alter existing tables and does not transfer data.</p>
+            {error && <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
           </section>
         </>
       )}
 
       {planId && <ExecutionPanel projectId={projectId} planId={planId} planStatus={plans.find((plan) => plan.id === planId)?.status ?? "draft"} />}
-      {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
       {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</div>}
       {busy && <p className="text-sm text-slate-500">Working…</p>}
     </div>
