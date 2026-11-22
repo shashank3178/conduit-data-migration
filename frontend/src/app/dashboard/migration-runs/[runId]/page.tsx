@@ -28,7 +28,9 @@ export default async function MigrationRunDetailPage({params}:{params:Promise<{r
   try { const {token}=await auth0.getAccessToken(); if(!token)throw new Error("No API token."); detail=await apiRequest<Detail>(`/analytics/runs/${runId}`,token,{cache:"no-store"}); }
   catch { notFound(); }
   const run=detail.run;
-  const progress=run.total_rows?Math.min(100,run.migrated_rows/run.total_rows*100):0;
+  const committedRows=run.inserted_rows+run.updated_rows;
+  const processedRows=committedRows+run.skipped_rows+run.failed_rows;
+  const progress=run.total_rows?Math.min(100,processedRows/run.total_rows*100):0;
   return <AppShell userLabel={session.user.name??session.user.email}>
     <div className="conduit-enter space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -36,12 +38,12 @@ export default async function MigrationRunDetailPage({params}:{params:Promise<{r
         <div className="flex items-center gap-3"><span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold capitalize text-slate-700">{run.status.replaceAll("_"," ")}</span><AnalyticsRefresh runId={run.id}/></div>
       </div>
       <section className="conduit-card p-5">
-        <div className="flex flex-wrap justify-between gap-2"><div><p className="conduit-eyebrow">Execution progress</p><p className="mt-1 text-xl font-semibold tabular-nums">{progress.toFixed(1)}%</p></div><div className="text-right text-xs text-slate-500">{run.migrated_rows.toLocaleString()} / {run.total_rows.toLocaleString()} rows</div></div>
+        <div className="flex flex-wrap justify-between gap-2"><div><p className="conduit-eyebrow">Execution progress</p><p className="mt-1 text-xl font-semibold tabular-nums">{progress.toFixed(1)}%</p></div><div className="text-right text-xs text-slate-500">{processedRows.toLocaleString()} / {run.total_rows.toLocaleString()} rows processed</div></div>
         <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-orange-500" style={{width:`${progress}%`}}/></div>
         {run.error_message&&<p className="mt-4 rounded-lg bg-rose-50 p-3 text-xs text-rose-700">{run.error_message}</p>}
       </section>
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Rows committed" value={run.migrated_rows.toLocaleString()} icon={<Rows3 size={17}/>} />
+        <Metric label="Rows committed" value={committedRows.toLocaleString()} icon={<Rows3 size={17}/>} />
         <Metric label="Logical payload" value={detail.metrics?bytes(detail.metrics.logical_bytes):"Not collected"} icon={<Database size={17}/>} />
         <Metric label="Rows per second" value={detail.metrics?detail.metrics.rows_per_second.toFixed(1):"—"} icon={<Gauge size={17}/>} />
         <Metric label="Committed batches" value={detail.metrics?detail.metrics.batches_committed.toLocaleString():"—"} icon={<Layers3 size={17}/>} />
