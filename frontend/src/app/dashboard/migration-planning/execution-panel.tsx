@@ -184,19 +184,6 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
     <div className="flex flex-wrap items-end gap-3">
       <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm"><strong>Primary engine: PostgreSQL COPY</strong><span className="ml-2 text-xs text-slate-600">8 MiB byte-bounded chunks · server-side extraction</span></div>
       <div className="w-full">
-        <p className="mb-2 text-xs font-semibold text-slate-600">Choose write engine</p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <button type="button" onClick={() => setWriteEngine("VALUES")} className={`rounded-xl border p-4 text-left transition ${writeEngine === "VALUES" ? "border-indigo-300 bg-indigo-50/70 ring-2 ring-indigo-100" : "border-slate-200 bg-white hover:border-slate-300"}`}>
-            <span className="text-sm font-semibold text-slate-800">VALUES (standard)</span>
-            <span className="mt-1 block text-[11px] leading-5 text-slate-500">Conventional parameterized INSERT. Recommended compatibility baseline.</span>
-          </button>
-          <button type="button" onClick={() => setWriteEngine("COPY")} className={`rounded-xl border p-4 text-left transition ${writeEngine === "COPY" ? "border-indigo-300 bg-indigo-50/70 ring-2 ring-indigo-100" : "border-slate-200 bg-white hover:border-slate-300"}`}>
-            <span className="text-sm font-semibold text-slate-800">COPY (staging + merge)</span>
-            <span className="mt-1 block text-[11px] leading-5 text-slate-500">Streams byte-bounded chunks through PostgreSQL COPY into staging, then merges atomically.</span>
-          </button>
-        </div>
-      </div>
-      <div className="w-full">
         <p className="mb-2 text-xs font-semibold text-slate-600">Choose write strategy</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <button type="button" onClick={() => setWriteStrategy("INSERT_ONLY")} className={`rounded-xl border p-4 text-left transition ${writeStrategy === "INSERT_ONLY" ? "border-indigo-300 bg-indigo-50/70 ring-2 ring-indigo-100" : "border-slate-200 bg-white hover:border-slate-300"}`}>
