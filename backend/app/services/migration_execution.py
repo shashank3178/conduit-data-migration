@@ -547,12 +547,12 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     progress.updated_rows += updated
                     progress.skipped_rows += skipped
                     progress.failed_rows += failed
-                    progress.migrated_rows += inserted + updated
+                    progress.migrated_rows += inserted + updated + skipped
                     run.inserted_rows += inserted
                     run.updated_rows += updated
                     run.skipped_rows += skipped
                     run.failed_rows += failed
-                    run.migrated_rows += inserted + updated
+                    run.migrated_rows += inserted + updated + skipped
                     run.heartbeat_at = datetime.now(UTC)
                     duration_ms = round((time.monotonic() - batch_started) * 1000, 2)
                     record_committed_batch(
