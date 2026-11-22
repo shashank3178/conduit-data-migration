@@ -36,6 +36,7 @@ class TableSummaryResponse(BaseModel):
     name: str
     table_type: str
     estimated_rows: int | None
+    estimated_size_bytes: int | None = None
 
 
 class TableDetailResponse(TableSummaryResponse):
