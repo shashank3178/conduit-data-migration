@@ -29,7 +29,6 @@ export default async function MigrationRunDetailPage({params}:{params:Promise<{r
   catch { notFound(); }
   const run=detail.run;
   const committedRows=run.inserted_rows+run.updated_rows;
-  const processedRows=committedRows+run.skipped_rows+run.failed_rows;
   const estimatedBytes=detail.tables.reduce((sum,table)=>sum+(table.metrics?.source_physical_bytes??0),0);
   const observedBytes=detail.metrics?.logical_bytes??0;
   const progress=estimatedBytes?Math.min(100,observedBytes/estimatedBytes*100):0;
