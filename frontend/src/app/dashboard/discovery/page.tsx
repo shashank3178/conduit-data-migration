@@ -10,7 +10,8 @@ type Connection = {
   database: string; host: string; port: number;
 };
 
-export default async function DiscoveryPage() {
+export default async function DiscoveryPage({ searchParams }: { searchParams: Promise<{ projectId?: string }> }) {
+  const query = await searchParams;
   const session = await auth0.getSession();
   if (!session) redirect("/auth/login?returnTo=/dashboard/discovery");
 
@@ -43,7 +44,7 @@ export default async function DiscoveryPage() {
           </p>
         </header>
         {loadError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{loadError}</div>}
-        <DiscoveryClient projects={projects} connectionsByProject={connectionsByProject} />
+        <DiscoveryClient projects={projects} connectionsByProject={connectionsByProject} initialProjectId={query.projectId} />
       </div>
     </AppShell>
   );
