@@ -6,9 +6,10 @@ import AppShell from "@/components/layout/app-shell";
 import { ArrowUpRight, Boxes, Cable, Plus, Workflow } from "lucide-react";
 import ProjectCreateForm from "./project-create-form";
 import ConnectionCreateForm from "../connections/connection-create-form";
+import DiscoveryClient from "../discovery/discovery-client";
 
 type Project = { id: string; name: string; status?: string; created_at?: string };
-type Connection = { id: string; role: "source" | "destination" };
+type Connection = { id: string; name: string; role: "source" | "destination"; database: string; host: string; port: number };
 type Plan = { id: string; name: string; status: string };
 
 export default async function ProjectsPage() {
@@ -36,6 +37,10 @@ export default async function ProjectsPage() {
       {error && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>}
       <ProjectCreateForm />
       <ConnectionCreateForm projects={projects} />
+      <section className="conduit-card p-5 sm:p-6">
+        <div className="mb-4"><p className="conduit-eyebrow">Project database discovery</p><h2 className="mt-1 text-lg font-semibold">Discover project connections</h2><p className="mt-1 text-xs text-slate-500">Run discovery directly from the Projects page after registering a connection.</p></div>
+        <DiscoveryClient key={projects.map((project,index)=>project.id+":"+(summaries[index]?.connections??[]).map(connection=>connection.id).join(",")).join("|")} projects={projects} connectionsByProject={Object.fromEntries(projects.map((project,index)=>[project.id,summaries[index]?.connections??[]]))} initialProjectId={projects[0]?.id} />
+      </section>
       <div className="grid gap-4 sm:grid-cols-3">
         <Summary label="Total projects" value={projects.length} icon={<Boxes size={18}/>} />
         <Summary label="Database connections" value={summaries.reduce((n,x)=>n+x.connections.length,0)} icon={<Cable size={18}/>} />
