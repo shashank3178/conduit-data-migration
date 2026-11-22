@@ -180,8 +180,17 @@ def record_table_storage_snapshot(db, run, progress, source, destination):
     destination_size = _relation_size(destination, progress.destination_schema, progress.destination_table)
     metric = db.query(MigrationTableMetric).filter_by(run_table_id=progress.id).one_or_none()
     if metric is None:
-        metric = MigrationTableMetric(run_id=run.id, run_table_id=progress.id)
+        metric = MigrationTableMetric(
+            run_id=run.id,
+            run_table_id=progress.id,
+            rows_fetched=0,
+            rows_committed=0,
+            batches_committed=0,
+            logical_bytes=0,
+        )
         db.add(metric)
+    else:
+        _initialize_counters(metric, _TABLE_COUNTER_FIELDS)
     metric.source_physical_bytes = source_size
     metric.destination_physical_bytes = destination_size
     metric.storage_measured_at = datetime.now(UTC)
