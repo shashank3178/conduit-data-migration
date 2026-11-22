@@ -116,6 +116,13 @@ def analytics_run_detail(
     batches = db.query(MigrationBatchMetric).filter_by(run_id=run.id).order_by(
         MigrationBatchMetric.created_at.desc()
     ).limit(100).all()
+    validation_events = db.query(MigrationRunEvent).filter_by(run_id=run.id, event_type="validation_finished").all()
+    validation_by_table = {
+        str(event.run_table_id): event.details.get("validation")
+        for event in validation_events
+        if event.run_table_id is not None and isinstance(event.details, dict)
+        and isinstance(event.details.get("validation"), dict)
+    }
     databases = db.query(MigrationDatabaseMetric).filter_by(run_id=run.id).order_by(
         MigrationDatabaseMetric.captured_at.desc()
     ).limit(20).all()
@@ -150,6 +157,7 @@ def analytics_run_detail(
             "inserted_rows": item.inserted_rows, "updated_rows": item.updated_rows,
             "skipped_rows": item.skipped_rows, "failed_rows": item.failed_rows,
             "validation_status": item.validation_status, "mismatch_rows": item.mismatch_rows,
+            "validation_details": validation_by_table.get(str(item.id)),
             "metrics": None if item.id not in table_metrics else {
                 "rows_fetched": table_metrics[item.id].rows_fetched,
                 "rows_committed": table_metrics[item.id].rows_committed,
