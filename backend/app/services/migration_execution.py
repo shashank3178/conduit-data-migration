@@ -458,7 +458,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     break
                 progress = db.query(MigrationRunTable).filter_by(run_id=run_id, plan_table_id=table.id).one()
                 if (
-                    progress.status == "completed"
+                    progress.status in {"completed", "partially_failed"}
                     and progress.validation_status in {"passed", "failed"}
                 ):
                     continue
@@ -566,7 +566,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     progress.status = "cancelled"
                     db.commit()
                     break
-                was_already_completed = progress.status == "completed"
+                was_already_completed = progress.status in {"completed", "partially_failed"}
                 progress.status = "partially_failed" if progress.failed_rows else "completed"
                 if not was_already_completed:
                     run.completed_tables += 1
