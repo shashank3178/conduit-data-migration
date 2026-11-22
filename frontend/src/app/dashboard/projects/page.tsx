@@ -5,6 +5,7 @@ import { apiRequest } from "@/lib/api";
 import AppShell from "@/components/layout/app-shell";
 import { ArrowUpRight, Boxes, Cable, Plus, Workflow } from "lucide-react";
 import ProjectCreateForm from "./project-create-form";
+import ConnectionCreateForm from "../connections/connection-create-form";
 
 type Project = { id: string; name: string; status?: string; created_at?: string };
 type Connection = { id: string; role: "source" | "destination" };
@@ -34,6 +35,7 @@ export default async function ProjectsPage() {
       <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="conduit-eyebrow">Workspace</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Projects</h1><p className="mt-2 text-sm text-slate-500">Keep each migration initiative, its database connections, and plans organized.</p></div><Link href="/dashboard/migration-planning" className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-xs font-semibold text-white hover:bg-indigo-700"><Plus size={15}/> Start a migration <ArrowUpRight size={14}/></Link></div>
       {error && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>}
       <ProjectCreateForm />
+      <ConnectionCreateForm projects={projects} />
       <div className="grid gap-4 sm:grid-cols-3">
         <Summary label="Total projects" value={projects.length} icon={<Boxes size={18}/>} />
         <Summary label="Database connections" value={summaries.reduce((n,x)=>n+x.connections.length,0)} icon={<Cable size={18}/>} />
@@ -48,7 +50,7 @@ export default async function ProjectsPage() {
             <div className="flex items-start justify-between"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700"><Boxes size={20}/></span><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">{project.status ?? "Active"}</span></div>
             <h2 className="mt-5 text-lg font-semibold text-slate-900">{project.name}</h2><p className="mt-1 text-[11px] text-slate-400">Project ID · {project.id.slice(0,8)}</p>
             <div className="mt-5 grid grid-cols-3 gap-2"><Mini label="Connections" value={summary.connections.length}/><Mini label="Source / target" value={`${sources} / ${destinations}`}/><Mini label="Plans" value={summary.plans.length}/></div>
-            <div className="mt-5 flex flex-wrap gap-2"><Link href="/dashboard/connections" className="rounded-lg border border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50">View connections</Link><Link href="/dashboard/migration-planning" className="rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-semibold text-white hover:bg-slate-700">Open planner <ArrowUpRight size={12} className="ml-1 inline"/></Link></div>
+            <div className="mt-5 flex flex-wrap gap-2"><Link href="/dashboard/connections" className="rounded-lg border border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50">Manage connections</Link><Link href="/dashboard/discovery" className="rounded-lg border border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50">Discover databases</Link><Link href="/dashboard/migration-planning" className="rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-semibold text-white hover:bg-slate-700">Open planner <ArrowUpRight size={12} className="ml-1 inline"/></Link></div>
           </article>;
         })}
       </div> : <div className="conduit-card px-6 py-14 text-center"><Boxes size={26} className="mx-auto text-slate-400"/><h2 className="mt-3 text-sm font-semibold">No projects found</h2><p className="mt-1 text-xs text-slate-500">Create a project through the project API to begin organizing migrations.</p></div>}
