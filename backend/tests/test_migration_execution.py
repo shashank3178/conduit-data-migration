@@ -130,7 +130,7 @@ def test_write_isolation_splits_failed_batches_instead_of_retrying_every_row(mon
     bad_key = (3,)
     recorded_errors = []
 
-    def fake_write_batch(_connection, _table, _columns, _conflicts, rows, _strategy, _types):
+    def fake_write_batch(_connection, _table, _columns, _conflicts, rows, _strategy, _types, _write_engine):
         if any(row[0] == bad_key[0] for row in rows):
             raise psycopg.errors.CheckViolation("test constraint violation")
         return len(rows), 0, 0
