@@ -1,5 +1,6 @@
 """Durable keyset-paginated PostgreSQL migration execution."""
 import logging
+import math
 import time
 import uuid
 from datetime import UTC, date, datetime
@@ -252,12 +253,20 @@ def _validation_values_equal(source_value, destination_value):
     """Compare values without Python's bool/int and NaN equality traps."""
     if isinstance(source_value, bool) or isinstance(destination_value, bool):
         return type(source_value) is type(destination_value) and source_value == destination_value
-    if isinstance(source_value, float) and isinstance(destination_value, float):
-        if source_value != source_value and destination_value != destination_value:
-            return True
-    if isinstance(source_value, Decimal) and isinstance(destination_value, Decimal):
-        if source_value.is_nan() and destination_value.is_nan():
-            return True
+    if (
+        isinstance(source_value, float)
+        and isinstance(destination_value, float)
+        and math.isnan(source_value)
+        and math.isnan(destination_value)
+    ):
+        return True
+    if (
+        isinstance(source_value, Decimal)
+        and isinstance(destination_value, Decimal)
+        and source_value.is_nan()
+        and destination_value.is_nan()
+    ):
+        return True
     if isinstance(source_value, memoryview):
         source_value = source_value.tobytes()
     if isinstance(destination_value, memoryview):
