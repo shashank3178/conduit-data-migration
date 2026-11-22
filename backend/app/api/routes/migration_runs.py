@@ -117,6 +117,14 @@ def get_run_report(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
     tables = db.query(MigrationRunTable).filter_by(run_id=run.id).order_by(MigrationRunTable.source_schema, MigrationRunTable.source_table).all()
     errors = db.query(MigrationRowError).filter_by(run_id=run.id).order_by(MigrationRowError.created_at).limit(5000).all()
     events = db.query(MigrationRunEvent).filter_by(run_id=run.id).order_by(MigrationRunEvent.created_at).limit(10000).all()
+    validation_by_table = {
+        str(event.run_table_id): event.details.get("validation")
+        for event in events
+        if event.event_type == "validation_finished"
+        and event.run_table_id is not None
+        and isinstance(event.details, dict)
+        and isinstance(event.details.get("validation"), dict)
+    }
     return {
         "run": {
             "id": str(run.id), "status": run.status, "write_strategy": run.write_strategy,
@@ -134,6 +142,7 @@ def get_run_report(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
             "inserted_rows": t.inserted_rows, "updated_rows": t.updated_rows,
             "skipped_rows": t.skipped_rows, "failed_rows": t.failed_rows,
             "validation_status": t.validation_status, "mismatch_rows": t.mismatch_rows,
+            "validation_details": validation_by_table.get(str(t.id)),
         } for t in tables],
         "row_errors": [{
             "table": str(e.run_table_id), "source_key": e.source_key,
@@ -142,7 +151,8 @@ def get_run_report(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
             "resolved_at": e.resolved_at.isoformat() if e.resolved_at else None,
         } for e in errors],
         "events": [{
-            "event_type": e.event_type, "details": e.details,
+            "event_type": e.event_type, "run_table_id": str(e.run_table_id) if e.run_table_id else None,
+            "details": e.details,
             "created_at": e.created_at.isoformat(),
         } for e in events],
     }
