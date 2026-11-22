@@ -413,6 +413,28 @@ def _validate_table_detailed(
         + details["extra_in_destination"]
         + details["changed_rows"]
     )
+    details["exact_match_rows"] = max(
+        0, details["matched_rows"] - details["changed_rows"]
+    )
+    details["row_count_delta"] = (
+        details["destination_rows"] - details["source_rows"]
+    )
+    comparison_denominator = max(
+        details["source_rows"], details["destination_rows"]
+    )
+    details["data_consistency_percent"] = (
+        round(details["exact_match_rows"] / comparison_denominator * 100, 4)
+        if comparison_denominator else 100.0
+    )
+    details["validation_checks"] = {
+        "row_count_match": details["row_count_delta"] == 0,
+        "primary_key_set_match": (
+            details["missing_in_destination"] == 0
+            and details["extra_in_destination"] == 0
+        ),
+        "mapped_column_values_match": details["changed_rows"] == 0,
+        "all_rows_exact_match": details["mismatch_rows"] == 0,
+    }
     return details
 
 
