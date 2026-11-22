@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import psycopg
 from fastapi import HTTPException
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
 
@@ -32,11 +33,28 @@ def _engine_for(connection: DatabaseConnection):
     )
 
 
-def _safe_error(exc: Exception) -> str:
-    # Avoid returning DSNs, usernames, or credentials in exception text.
-    if isinstance(exc, psycopg.OperationalError):
-        return "Could not connect to PostgreSQL. Verify host, port, database, credentials, network access, and SSL settings."
-    return f"Database discovery failed ({type(exc).__name__}). Check database permissions and retry."
+def _safe_error(exc: Exception, stage: str | None = None) -> str:
+    """Return actionable PostgreSQL diagnostics without exposing connection secrets."""
+    original = exc.orig if isinstance(exc, DBAPIError) else exc
+    if isinstance(original, psycopg.OperationalError):
+        return (
+            f"Database discovery failed during {stage or 'connection'}: "
+            "could not connect to PostgreSQL. Verify host, port, database, "
+            "credentials, network access, and SSL settings."
+        )
+
+    sqlstate = getattr(original, "sqlstate", None)
+    diagnostic = getattr(original, "diag", None)
+    primary = getattr(diagnostic, "message_primary", None)
+    if primary:
+        # PostgreSQL's primary diagnostic is the useful server message; omit
+        # DETAIL, query text and bound parameters to avoid leaking data.
+        suffix = f" (SQLSTATE {sqlstate})" if sqlstate else ""
+        prefix = f" during {stage}" if stage else ""
+        return f"Database discovery failed{prefix}: {primary}{suffix}."
+
+    prefix = f" during {stage}" if stage else ""
+    return f"Database discovery failed{prefix} ({type(exc).__name__}). Check the backend logs for the underlying database error."
 
 
 def _plain(value):
@@ -59,11 +77,14 @@ def _plain(value):
 def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid.UUID) -> DiscoverySnapshot:
     connection = get_connection(db, user, project_id, connection_id)
     engine = _engine_for(connection)
+    stage = "opening the database connection"
     try:
         with engine.connect() as conn:
+            stage = "reading PostgreSQL server metadata"
             inspector = inspect(conn)
             database_name = conn.execute(text("SELECT current_database()")).scalar_one()
             server_version = conn.execute(text("SELECT version()")).scalar_one().splitlines()[0][:255]
+            stage = "listing accessible schemas"
             schemas = conn.execute(
                 text("""
                     SELECT n.nspname
@@ -81,6 +102,7 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
                     ORDER BY n.nspname
                 """)
             ).scalars().all()
+            stage = "creating or refreshing the discovery snapshot"
             snapshot = db.query(DiscoverySnapshot).filter_by(connection_id=connection.id).first()
             if snapshot is None:
                 snapshot = DiscoverySnapshot(
@@ -105,6 +127,7 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
             schema_count = 0
             table_count = 0
             for schema_name in schemas:
+                stage = f"inspecting schema {schema_name}"
                 is_system = schema_name in SYSTEM_SCHEMAS or schema_name.startswith("pg_toast")
                 schema_record = DiscoveredSchema(
                     snapshot_id=snapshot.id,
@@ -132,6 +155,7 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
                 ).scalars().all()
 
                 for table_name in sorted(set(table_names) | set(view_names) | set(materialized_views)):
+                    stage = f"reading metadata for {schema_name}.{table_name}"
                     if table_name in materialized_views:
                         kind = "materialized_view"
                     elif table_name in view_names:
@@ -163,6 +187,7 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
                         {"schema": schema_name, "table": table_name},
                     ).scalar_one_or_none() if kind == "table" else None
 
+                    stage = f"persisting metadata for {schema_name}.{table_name}"
                     db.add(
                         DiscoveredTable(
                             schema_id=schema_record.id,
@@ -181,6 +206,7 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
                     )
                     table_count += 1
 
+            stage = "committing the discovery snapshot"
             snapshot.status = "completed"
             snapshot.schema_count = schema_count
             snapshot.table_count = table_count
@@ -191,12 +217,18 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
             return snapshot
     except Exception as exc:
         db.rollback()
+        error_message = _safe_error(exc, stage)
+        # Keep the full traceback in backend logs for diagnosis. The API gets
+        # only PostgreSQL's primary diagnostic, never the DSN or query params.
+        import logging
+
+        logging.getLogger(__name__).exception("Database discovery failed at stage: %s", stage)
         existing = db.query(DiscoverySnapshot).filter_by(connection_id=connection.id).first()
         if existing:
             existing.status = "failed"
-            existing.error_message = _safe_error(exc)
+            existing.error_message = error_message
             db.commit()
-        raise HTTPException(status_code=502, detail=_safe_error(exc)) from exc
+        raise HTTPException(status_code=502, detail=error_message) from exc
     finally:
         engine.dispose()
 
