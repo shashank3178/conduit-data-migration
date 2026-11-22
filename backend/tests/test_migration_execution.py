@@ -9,8 +9,9 @@ os.environ.setdefault("AUTH0_DOMAIN", "example.auth0.com")
 os.environ.setdefault("AUTH0_AUDIENCE", "https://api.example.local")
 os.environ.setdefault("AUTH0_ISSUER", "https://example.auth0.com/")
 
+from app.services import migration_execution as execution
 from app.services.migration_execution import (
-    _get_destination_column_types,
+    _get_destination_column_types, _write_with_isolation,
     _json_key,
     _restore_key,
     _validate_table,
@@ -107,6 +108,59 @@ def test_destination_column_type_lookup_commits_its_own_transaction():
     assert connection.committed_transactions == 1
     assert connection.rolled_back_transactions == 0
     assert connection.in_transaction is False
+
+
+class FakeWriteTransaction:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+
+class FakeWriteConnection:
+    def transaction(self):
+        return FakeWriteTransaction()
+
+
+def test_write_isolation_splits_failed_batches_instead_of_retrying_every_row(monkeypatch):
+    import psycopg
+
+    bad_key = (3,)
+    recorded_errors = []
+
+    def fake_write_batch(_connection, _table, _columns, _conflicts, rows, _strategy, _types):
+        if any(row[0] == bad_key[0] for row in rows):
+            raise psycopg.errors.CheckViolation("test constraint violation")
+        return len(rows), 0, 0
+
+    monkeypatch.setattr(execution, "_write_batch", fake_write_batch)
+    monkeypatch.setattr(
+        execution,
+        "_record_row_error",
+        lambda _db, _run, _progress, key, _key_columns, exc: recorded_errors.append((key, exc)),
+    )
+
+    result = _write_with_isolation(
+        FakeWriteConnection(),
+        object(),
+        object(),
+        object(),
+        SimpleNamespace(destination_schema="public", destination_table="target"),
+        ["id", "value"],
+        {},
+        ["id"],
+        ["id"],
+        [(1, "a"), (2, "b"), (3, "bad"), (4, "d")],
+        [(1,), (2,), (3,), (4,)],
+        "INSERT_ONLY",
+    )
+
+    assert result[:4] == (3, 0, 0, 1)
+    assert result[4] == [bad_key]
+    assert [key for key, _ in recorded_errors] == [bad_key]
+    # The recursive algorithm probes batches, then isolates only the bad row;
+    # it does not execute one INSERT transaction for every original row.
 
 
 def test_insert_only_counts_conflicts_as_skipped():
