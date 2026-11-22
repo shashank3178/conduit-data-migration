@@ -248,9 +248,35 @@ def _cursor_rows(cursor, size):
         yield from rows
 
 
-def _validate_table(source, destination, table, source_columns, destination_columns,
-                    source_pk, destination_pk, batch_size):
-    """Streaming merge comparison; counts missing, extra and changed rows exactly."""
+def _validation_values_equal(source_value, destination_value):
+    """Compare values without Python's bool/int and NaN equality traps."""
+    if isinstance(source_value, bool) or isinstance(destination_value, bool):
+        return type(source_value) is type(destination_value) and source_value == destination_value
+    if isinstance(source_value, float) and isinstance(destination_value, float):
+        if source_value != source_value and destination_value != destination_value:
+            return True
+    if isinstance(source_value, Decimal) and isinstance(destination_value, Decimal):
+        if source_value.is_nan() and destination_value.is_nan():
+            return True
+    if isinstance(source_value, memoryview):
+        source_value = source_value.tobytes()
+    if isinstance(destination_value, memoryview):
+        destination_value = destination_value.tobytes()
+    return source_value == destination_value
+
+
+def _validation_key_payload(key, key_columns):
+    return {
+        name: value
+        for name, value in zip(key_columns, _json_key(key), strict=True)
+    }
+
+
+def _validate_table_detailed(
+    source, destination, table, source_columns, destination_columns,
+    source_pk, destination_pk, batch_size, sample_limit=20,
+):
+    """Stream-compare rows and return actionable, bounded validation diagnostics."""
     source_query = sql.SQL("SELECT {} FROM {}.{} ORDER BY {}").format(
         sql.SQL(", ").join(map(sql.Identifier, source_columns)),
         sql.Identifier(table.source_schema), sql.Identifier(table.source_table),
@@ -263,7 +289,31 @@ def _validate_table(source, destination, table, source_columns, destination_colu
     )
     source_key_indexes = [source_columns.index(name) for name in source_pk]
     destination_key_indexes = [destination_columns.index(name) for name in destination_pk]
-    mismatch = 0
+    details = {
+        "source_rows": 0,
+        "destination_rows": 0,
+        "missing_in_destination": 0,
+        "extra_in_destination": 0,
+        "changed_rows": 0,
+        "mismatch_rows": 0,
+        "samples": [],
+        "sample_limit": sample_limit,
+        "comparison": "primary-key ordered streaming comparison",
+    }
+
+    def add_sample(reason, key, columns=None, type_differences=None):
+        if len(details["samples"]) >= sample_limit:
+            return
+        sample = {
+            "reason": reason,
+            "primary_key": _validation_key_payload(key, source_pk),
+        }
+        if columns:
+            sample["different_columns"] = columns
+        if type_differences:
+            sample["python_type_differences"] = type_differences
+        details["samples"].append(sample)
+
     with source.cursor(name=f"validate_src_{uuid.uuid4().hex[:16]}") as left, destination.cursor(
         name=f"validate_dst_{uuid.uuid4().hex[:16]}"
     ) as right:
@@ -275,27 +325,95 @@ def _validate_table(source, destination, table, source_columns, destination_colu
         destination_row = next(destination_rows, None)
         while source_row is not None or destination_row is not None:
             if source_row is None:
-                mismatch += 1
+                details["destination_rows"] += 1
+                destination_key = tuple(destination_row[index] for index in destination_key_indexes)
+                details["extra_in_destination"] += 1
+                add_sample("EXTRA_IN_DESTINATION", destination_key)
                 destination_row = next(destination_rows, None)
                 continue
             if destination_row is None:
-                mismatch += 1
+                details["source_rows"] += 1
+                source_key = tuple(source_row[index] for index in source_key_indexes)
+                details["missing_in_destination"] += 1
+                add_sample("MISSING_IN_DESTINATION", source_key)
                 source_row = next(source_rows, None)
                 continue
+
+            details["source_rows"] += 1
+            details["destination_rows"] += 1
             source_key = tuple(source_row[index] for index in source_key_indexes)
             destination_key = tuple(destination_row[index] for index in destination_key_indexes)
-            if source_key < destination_key:
-                mismatch += 1
+            try:
+                source_before_destination = source_key < destination_key
+                destination_before_source = destination_key < source_key
+            except TypeError as exc:
+                raise ValueError(
+                    "Validation cannot order source and destination primary keys. "
+                    f"Source key types: {[type(value).__name__ for value in source_key]}; "
+                    f"destination key types: {[type(value).__name__ for value in destination_key]}. "
+                    "Check that mapped primary-key columns use order-compatible PostgreSQL types."
+                ) from exc
+
+            if source_before_destination:
+                details["missing_in_destination"] += 1
+                add_sample("MISSING_IN_DESTINATION", source_key)
                 source_row = next(source_rows, None)
-            elif destination_key < source_key:
-                mismatch += 1
+            elif destination_before_source:
+                details["extra_in_destination"] += 1
+                add_sample("EXTRA_IN_DESTINATION", destination_key)
                 destination_row = next(destination_rows, None)
             else:
-                if tuple(source_row) != tuple(destination_row):
-                    mismatch += 1
+                different_columns = []
+                type_differences = {}
+                for index, (source_value, destination_value) in enumerate(
+                    zip(source_row, destination_row, strict=True)
+                ):
+                    if not _validation_values_equal(source_value, destination_value):
+                        column_name = source_columns[index]
+                        different_columns.append(column_name)
+                        if type(source_value) is not type(destination_value):
+                            type_differences[column_name] = {
+                                "source": type(source_value).__name__,
+                                "destination": type(destination_value).__name__,
+                            }
+                if different_columns:
+                    details["changed_rows"] += 1
+                    reason = "TYPE_MISMATCH" if type_differences else "COLUMN_VALUE_MISMATCH"
+                    add_sample(reason, source_key, different_columns, type_differences or None)
                 source_row = next(source_rows, None)
                 destination_row = next(destination_rows, None)
-    return mismatch
+
+    # Named/server-side cursors open implicit transactions. End both read
+    # transactions here: otherwise the next table's writer can run inside a
+    # savepoint, appear committed, and then be rolled back when the connection
+    # closes. This boundary is essential because one worker reuses connections
+    # across multiple tables.
+    for connection in (source, destination):
+        commit = getattr(connection, "commit", None)
+        if callable(commit):
+            commit()
+
+    details["mismatch_rows"] = (
+        details["missing_in_destination"]
+        + details["extra_in_destination"]
+        + details["changed_rows"]
+    )
+    details["matched_rows"] = (
+        min(details["source_rows"], details["destination_rows"])
+        - details["missing_in_destination"]
+        - details["extra_in_destination"]
+        - details["changed_rows"]
+    )
+    return details
+
+
+def _validate_table(source, destination, table, source_columns, destination_columns,
+                    source_pk, destination_pk, batch_size):
+    """Backward-compatible mismatch-count wrapper for callers and tests."""
+    return _validate_table_detailed(
+        source, destination, table, source_columns, destination_columns,
+        source_pk, destination_pk, batch_size,
+    )["mismatch_rows"]
 
 def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
     source = destination = None
@@ -443,13 +561,21 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 db.commit()
                 progress.validation_status = "running"
                 db.commit()
-                mismatch = _validate_table(source, destination, table, source_columns,
-                    destination_columns, source_pk, destination_pk, run.batch_size)
+                validation_details = _validate_table_detailed(
+                    source, destination, table, source_columns,
+                    destination_columns, source_pk, destination_pk, run.batch_size,
+                )
+                mismatch = validation_details["mismatch_rows"]
                 progress.mismatch_rows = mismatch
                 progress.validation_status = "passed" if mismatch == 0 else "failed"
                 run.mismatch_rows += mismatch
                 record_table_storage_snapshot(db, run, progress, source, destination)
-                _event(db, run, "validation_finished", progress, mismatch_rows=mismatch, validation_status=progress.validation_status)
+                _event(
+                    db, run, "validation_finished", progress,
+                    mismatch_rows=mismatch,
+                    validation_status=progress.validation_status,
+                    validation=validation_details,
+                )
                 db.commit()
 
             cancelled = _cancel_requested(run_id)
