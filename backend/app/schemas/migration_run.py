@@ -12,7 +12,7 @@ WriteEngine = Literal["VALUES", "COPY"]
 class MigrationRunCreate(BaseModel):
     batch_size: int = Field(default=1000, ge=100, le=10000)
     write_strategy: WriteStrategy = "INSERT_ONLY"
-    write_engine: WriteEngine = "VALUES"
+    write_engine: WriteEngine = "COPY"
     max_retries: int = Field(default=3, ge=0, le=10)
 
 

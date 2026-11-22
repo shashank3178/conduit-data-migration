@@ -45,9 +45,9 @@ export default async function MigrationPlanningPage() {
           <div>
             <p className="conduit-eyebrow">Migration workspace</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">Migration planning</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Configure the source and destination, select tables, map columns, validate the plan, and prepare the target schema.</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Select source and destination connections; plan creation automatically discovers both databases and measures table sizes.</p>
           </div>
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-xs text-indigo-800"><span className="font-semibold">Workflow</span><span className="ml-2 text-indigo-600">Configure → Map → Validate → Execute</span></div>
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-xs text-indigo-800"><span className="font-semibold">Workflow</span><span className="ml-2 text-indigo-600">Discover → Select by size → Map → Prepare → COPY</span></div>
         </div>
         {loadError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{loadError}</div>}
         <MigrationPlanningClient projects={projects} initialConnections={initialConnections} initialPlans={initialPlans} />

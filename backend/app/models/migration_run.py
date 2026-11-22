@@ -19,7 +19,7 @@ class MigrationRun(Base):
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
     batch_size: Mapped[int] = mapped_column(Integer, nullable=False, default=1000)
     write_strategy: Mapped[str] = mapped_column(String(20), nullable=False, default="INSERT_ONLY")
-    write_engine: Mapped[str] = mapped_column(String(20), nullable=False, default="COPY")
+    write_engine: Mapped[str] = mapped_column(String(20), nullable=False, default="VALUES")
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     total_tables: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completed_tables: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
