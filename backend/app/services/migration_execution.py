@@ -457,7 +457,10 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 if _cancel_requested(run_id):
                     break
                 progress = db.query(MigrationRunTable).filter_by(run_id=run_id, plan_table_id=table.id).one()
-                if progress.status == "completed":
+                if (
+                    progress.status == "completed"
+                    and progress.validation_status in {"passed", "failed"}
+                ):
                     continue
                 mappings = db.query(MigrationColumnMapping).filter_by(plan_table_id=table.id, included=True).order_by(
                     MigrationColumnMapping.source_column
@@ -563,15 +566,32 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     progress.status = "cancelled"
                     db.commit()
                     break
+                was_already_completed = progress.status == "completed"
                 progress.status = "partially_failed" if progress.failed_rows else "completed"
-                run.completed_tables += 1
+                if not was_already_completed:
+                    run.completed_tables += 1
                 db.commit()
                 progress.validation_status = "running"
                 db.commit()
-                validation_details = _validate_table_detailed(
-                    source, destination, table, source_columns,
-                    destination_columns, source_pk, destination_pk, run.batch_size,
-                )
+                try:
+                    validation_details = _validate_table_detailed(
+                        source, destination, table, source_columns,
+                        destination_columns, source_pk, destination_pk, run.batch_size,
+                    )
+                except Exception as exc:
+                    progress.validation_status = "failed"
+                    progress.error_message = (
+                        f"Validation execution failed ({type(exc).__name__}): "
+                        f"{_execution_error_detail(exc)}"
+                    )[:1200]
+                    run.validation_status = "failed"
+                    _event(
+                        db, run, "validation_error", progress,
+                        error_type=type(exc).__name__,
+                        error_message=progress.error_message,
+                    )
+                    db.commit()
+                    raise
                 mismatch = validation_details["mismatch_rows"]
                 progress.mismatch_rows = mismatch
                 progress.validation_status = "passed" if mismatch == 0 else "failed"
