@@ -2,8 +2,8 @@ import os
 from types import SimpleNamespace
 
 import psycopg
-from psycopg.pq import TransactionStatus
 import pytest
+from psycopg.pq import TransactionStatus
 
 from app.services.migration_execution import _validate_table, _write_batch
 
