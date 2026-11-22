@@ -1,6 +1,7 @@
 """Durable keyset-paginated PostgreSQL migration execution."""
 import logging
 import math
+import os
 import time
 import uuid
 from datetime import UTC, date, datetime
@@ -118,9 +119,12 @@ def _fetch_upper_key(source, table, pk_columns):
     return tuple(row) if row else None
 
 
-def _fetch_batch(source, table, pk_columns, source_columns, batch_size, last_key, upper_key):
-    predicates = []
-    params = []
+COPY_CHUNK_TARGET_BYTES = min(64 * 1024 * 1024, max(1024 * 1024, int(os.getenv("CONDUIT_COPY_CHUNK_BYTES", str(8 * 1024 * 1024)))))
+
+
+def _fetch_batch(source, table, pk_columns, source_columns, target_bytes, last_key, upper_key):
+    """Read a resumable server-side cursor window bounded by serialized bytes."""
+    predicates, params = [], []
     key_tuple = _tuple_sql(pk_columns)
     placeholders = sql.SQL("({})").format(sql.SQL(", ").join(sql.Placeholder() for _ in pk_columns))
     if last_key is not None:
@@ -128,14 +132,23 @@ def _fetch_batch(source, table, pk_columns, source_columns, batch_size, last_key
         params.extend(last_key)
     predicates.append(sql.SQL("{} <= {}").format(key_tuple, placeholders))
     params.extend(upper_key)
-    query = sql.SQL("SELECT {} FROM {}.{} WHERE {} ORDER BY {} LIMIT %s").format(
+    query = sql.SQL("SELECT {} FROM {}.{} WHERE {} ORDER BY {}").format(
         sql.SQL(", ").join(map(sql.Identifier, source_columns)),
         sql.Identifier(table.source_schema), sql.Identifier(table.source_table),
         sql.SQL(" AND ").join(predicates),
         sql.SQL(", ").join(map(sql.Identifier, pk_columns)),
     )
-    params.append(batch_size)
-    return source.execute(query, params).fetchall()
+    batch, transferred_bytes = [], 0
+    with source.cursor(name=f"conduit_extract_{uuid.uuid4().hex[:16]}") as cursor:
+        cursor.execute(query, params)
+        while transferred_bytes < target_bytes:
+            block = cursor.fetchmany(8)
+            if not block:
+                break
+            batch.extend(block)
+            transferred_bytes += logical_payload_bytes(block)
+    source.commit()
+    return batch
 
 
 def _get_destination_column_types(destination, table, destination_columns):
@@ -778,7 +791,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
         run.worker_id = worker_id or run.worker_id
         run.started_at = run.started_at or datetime.now(UTC)
         run.heartbeat_at = datetime.now(UTC)
-        _event(db, run, "worker_started", worker_id=run.worker_id, write_strategy=run.write_strategy, batch_size=run.batch_size)
+        _event(db, run, "worker_started", worker_id=run.worker_id, write_strategy=run.write_strategy, write_engine=run.write_engine, chunk_target_bytes=COPY_CHUNK_TARGET_BYTES)
         ensure_run_metric(db, run)
         db.commit()
         try:
@@ -874,7 +887,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                         try:
                             batch = _fetch_batch(
                                 source, table, source_pk, source_columns,
-                                min(run.batch_size, max(1, 60000 // len(source_columns))),
+                                COPY_CHUNK_TARGET_BYTES,
                                 last_key, upper_key,
                             )
                             break
@@ -965,7 +978,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 try:
                     validation_details = _validate_table_detailed(
                         source, destination, table, source_columns,
-                        destination_columns, source_pk, destination_pk, run.batch_size,
+                        destination_columns, source_pk, destination_pk, COPY_CHUNK_TARGET_BYTES,
                     )
                 except Exception as exc:
                     progress.validation_status = "failed"

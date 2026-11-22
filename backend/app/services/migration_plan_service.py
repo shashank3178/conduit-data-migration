@@ -18,7 +18,7 @@ from app.schemas.migration_plan import (
     MigrationPlanUpdate,
     TableSelectionUpdate,
 )
-from app.services import connection_service, project_service
+from app.services import connection_service, discovery_service, project_service
 from app.services.connection_service import decrypt_password
 from app.services.migration_ddl import build_ddl, normalize_pg_type, types_compatible
 
@@ -89,21 +89,9 @@ def create_plan(db: Session, user: User, project_id: uuid.UUID, payload: Migrati
             detail="Select a connection registered with the source role and one with the destination role.",
         )
 
-    source_snapshot = (
-        db.query(DiscoverySnapshot)
-        .filter_by(project_id=project_id, connection_id=source_connection.id, status="completed")
-        .first()
-    )
-    destination_snapshot = (
-        db.query(DiscoverySnapshot)
-        .filter_by(project_id=project_id, connection_id=destination_connection.id, status="completed")
-        .first()
-    )
-    if source_snapshot is None or destination_snapshot is None:
-        raise HTTPException(
-            status_code=409,
-            detail="Run and complete discovery for both source and destination connections before creating a migration plan.",
-        )
+    # Refresh both live catalogs as part of plan creation.
+    source_snapshot = discovery_service.discover(db, user, project_id, source_connection.id)
+    destination_snapshot = discovery_service.discover(db, user, project_id, destination_connection.id)
 
     plan = MigrationPlan(
         project_id=project_id,
@@ -149,6 +137,7 @@ def create_plan(db: Session, user: User, project_id: uuid.UUID, payload: Migrati
             selected=False,
             destination_exists=destination_table is not None,
             estimated_rows=source_table.estimated_rows,
+            source_size_bytes=source_table.estimated_size_bytes,
             source_columns=source_table.columns or [],
             destination_columns=destination_table.columns if destination_table else [],
             source_primary_key=source_table.primary_key or {},
@@ -209,6 +198,7 @@ def list_plan_tables(db: Session, plan: MigrationPlan):
                 "selected": row.selected,
                 "destination_exists": row.destination_exists,
                 "estimated_rows": row.estimated_rows,
+                "source_size_bytes": row.source_size_bytes,
                 "column_count": len(row.source_columns or []),
                 "mappings": mappings,
             }
