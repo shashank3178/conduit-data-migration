@@ -23,7 +23,13 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     const responseBody = await response.text();
-    let message = `Request failed (${response.status}).`;
+    let message = response.status === 401 ? "Your session has expired. Sign in again."
+      : response.status === 403 ? "You do not have permission to perform this action."
+      : response.status === 404 ? "The requested resource could not be found."
+      : response.status === 409 ? "The operation conflicts with the current resource state."
+      : response.status === 422 ? "Some submitted values are invalid. Review the form and try again."
+      : response.status >= 500 ? "The service encountered an error. Please retry; if it continues, inspect the backend logs."
+      : `The request failed (HTTP ${response.status}).`;
 
     if (responseBody) {
       try {
@@ -37,11 +43,12 @@ export async function apiRequest<T>(
           message = payload.detail.message;
         } else if (typeof payload.message === "string") {
           message = payload.message;
-        } else {
-          message = responseBody;
+        } else if (Array.isArray((payload as { detail?: unknown }).detail)) {
+          const details = (payload as { detail: Array<{ msg?: string; loc?: unknown[] }> }).detail;
+          message = details.map((item) => item.msg ?? "Invalid request.").join(" · ");
         }
       } catch {
-        message = responseBody;
+        // Never surface raw proxy, framework, HTML, or JSON error bodies in the UI.
       }
     }
 
