@@ -573,7 +573,7 @@ def _validate_table_detailed(
         "timestamp_columns_normalized": [],
     }
 
-    def add_sample(reason, key, columns=None, type_differences=None):
+    def add_sample(reason, key, columns=None, type_differences=None, value_differences=None):
         if len(details["samples"]) >= sample_limit:
             return
         sample = {
@@ -584,6 +584,8 @@ def _validate_table_detailed(
             sample["different_columns"] = columns
         if type_differences:
             sample["python_type_differences"] = type_differences
+        if value_differences:
+            sample["timestamp_value_differences"] = value_differences
         details["samples"].append(sample)
 
     with source.cursor(name=f"validate_src_{uuid.uuid4().hex[:16]}") as left, destination.cursor(
@@ -640,6 +642,7 @@ def _validate_table_detailed(
                 details["matched_rows"] += 1
                 different_columns = []
                 type_differences = {}
+                timestamp_value_differences = {}
                 for index, (source_value, destination_value) in enumerate(
                     zip(source_row, destination_row, strict=True)
                 ):
@@ -663,6 +666,14 @@ def _validate_table_detailed(
                         details["timestamp_columns_normalized"].append(column_name)
                     if not equal:
                         different_columns.append(column_name)
+                        if is_timestamp_pair:
+                            timestamp_value_differences[column_name] = {
+                                "source": source_value.isoformat() if isinstance(source_value, datetime) else repr(source_value),
+                                "destination": destination_value.isoformat() if isinstance(destination_value, datetime) else repr(destination_value),
+                                "source_postgres_type": source_type,
+                                "destination_postgres_type": destination_type,
+                                "destination_timezone": destination_timezone,
+                            }
                         if type(source_value) is not type(destination_value):
                             type_differences[column_name] = {
                                 "source": type(source_value).__name__,
@@ -673,7 +684,11 @@ def _validate_table_detailed(
                 if different_columns:
                     details["changed_rows"] += 1
                     reason = "TYPE_MISMATCH" if type_differences else "COLUMN_VALUE_MISMATCH"
-                    add_sample(reason, source_key, different_columns, type_differences or None)
+                    add_sample(
+                        reason, source_key, different_columns,
+                        type_differences or None,
+                        timestamp_value_differences or None,
+                    )
                 source_row = next(source_rows, None)
                 destination_row = next(destination_rows, None)
 
