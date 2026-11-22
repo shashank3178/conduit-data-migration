@@ -9,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.connection import DatabaseConnection
-from app.models.discovery import DiscoveredSchema, DiscoveredTable, DiscoverySnapshot
+from app.models.discovery import DiscoveredSchema, DiscoveredTable
 from app.models.migration_plan import MigrationColumnMapping, MigrationPlan, MigrationPlanTable
 from app.models.user import User
 from app.schemas.migration_plan import (
