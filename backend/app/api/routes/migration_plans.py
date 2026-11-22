@@ -139,7 +139,7 @@ def preview_ddl(
     user: User = Depends(get_current_user),
 ):
     plan = migration_plan_service.get_plan(db, user, project_id, plan_id)
-    return migration_plan_service.preview_ddl(db, plan)
+    return migration_plan_service.preview_ddl(db, plan, user, project_id)
 
 
 @router.post("/{plan_id}/ddl/apply")

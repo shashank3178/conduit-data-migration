@@ -144,7 +144,9 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
     while (amount >= 1024 && index < units.length - 1) { amount /= 1024; index += 1; }
     return `${amount.toFixed(2)} ${units[index]}`;
   };
-  const percent = selected?.total_rows ? Math.min(100, Math.round(selected.migrated_rows / selected.total_rows * 100)) : 0;
+  const percent = selected?.total_rows
+    ? Math.min(100, Math.round(selected.migrated_rows / selected.total_rows * 100))
+    : 0;
   return <section className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
     <div><p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Data execution</p><h2 className="mt-1 text-lg font-semibold">5. Run migration</h2>
       <p className="mt-1 text-sm text-slate-600">Queue a durable migration job. A separate backend worker processes queued jobs and persists checkpoints.</p></div>

@@ -9,7 +9,13 @@ os.environ.setdefault("AUTH0_DOMAIN", "example.auth0.com")
 os.environ.setdefault("AUTH0_AUDIENCE", "https://api.example.local")
 os.environ.setdefault("AUTH0_ISSUER", "https://example.auth0.com/")
 
-from app.services.migration_execution import _json_key, _restore_key, _validate_table, _write_batch
+from app.services.migration_execution import (
+    _json_key,
+    _restore_key,
+    _validate_table,
+    _validate_table_detailed,
+    _write_batch,
+)
 
 
 class FakeResult:
@@ -95,9 +101,13 @@ class FakeNamedCursor:
 class FakeReadConnection:
     def __init__(self, rows):
         self.rows = rows
+        self.commits = 0
 
     def cursor(self, name):
         return FakeNamedCursor(self.rows)
+
+    def commit(self):
+        self.commits += 1
 
 
 def test_streaming_reconciliation_counts_missing_extra_and_changed_rows():
@@ -112,6 +122,70 @@ def test_streaming_reconciliation_counts_missing_extra_and_changed_rows():
         ["id"], ["id"], 2,
     )
     assert mismatch == 3
+
+
+def test_validation_returns_actionable_counts_and_closes_read_transactions():
+    table = SimpleNamespace(
+        source_schema="public", source_table="source",
+        destination_schema="public", destination_table="destination",
+    )
+    source = FakeReadConnection([(1, "same"), (2, "source-only"), (3, "before")])
+    destination = FakeReadConnection([(1, "same"), (3, "after"), (4, "destination-only")])
+
+    result = _validate_table_detailed(
+        source, destination, table, ["id", "value"], ["id", "value"],
+        ["id"], ["id"], 2,
+    )
+
+    assert result["source_rows"] == 3
+    assert result["destination_rows"] == 3
+    assert result["missing_in_destination"] == 1
+    assert result["extra_in_destination"] == 1
+    assert result["changed_rows"] == 1
+    assert result["matched_rows"] == 2
+    assert result["mismatch_rows"] == 3
+    assert {sample["reason"] for sample in result["samples"]} == {
+        "MISSING_IN_DESTINATION", "EXTRA_IN_DESTINATION", "COLUMN_VALUE_MISMATCH",
+    }
+    assert source.commits == 1
+    assert destination.commits == 1
+
+
+def test_validation_detects_destination_rows_for_empty_source_table():
+    table = SimpleNamespace(
+        source_schema="public", source_table="source",
+        destination_schema="public", destination_table="destination",
+    )
+    source = FakeReadConnection([])
+    destination = FakeReadConnection([(1, "destination-only")])
+
+    result = _validate_table_detailed(
+        source, destination, table, ["id", "value"], ["id", "value"],
+        ["id"], ["id"], 10,
+    )
+
+    assert result["source_rows"] == 0
+    assert result["destination_rows"] == 1
+    assert result["extra_in_destination"] == 1
+    assert result["mismatch_rows"] == 1
+    assert result["samples"][0]["reason"] == "EXTRA_IN_DESTINATION"
+
+
+def test_validation_does_not_treat_boolean_true_as_integer_one():
+    table = SimpleNamespace(
+        source_schema="public", source_table="source",
+        destination_schema="public", destination_table="destination",
+    )
+    source = FakeReadConnection([(1, True)])
+    destination = FakeReadConnection([(1, 1)])
+
+    result = _validate_table_detailed(
+        source, destination, table, ["id", "enabled"], ["id", "enabled"],
+        ["id"], ["id"], 10,
+    )
+
+    assert result["changed_rows"] == 1
+    assert result["samples"][0]["reason"] == "TYPE_MISMATCH"
 
 
 def test_checkpoint_restores_float_and_time_primary_keys():
