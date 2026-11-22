@@ -145,6 +145,7 @@ def get_run_report(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
             "inserted_rows": t.inserted_rows, "updated_rows": t.updated_rows,
             "skipped_rows": t.skipped_rows, "failed_rows": t.failed_rows,
             "validation_status": t.validation_status, "mismatch_rows": t.mismatch_rows,
+            "error_message": t.error_message,
             "validation_details": validation_by_table.get(str(t.id)),
         } for t in tables],
         "row_errors": [{
@@ -197,6 +198,7 @@ def download_run_report_csv(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: u
             "inserted_rows": table.inserted_rows, "updated_rows": table.updated_rows,
             "skipped_rows": table.skipped_rows, "failed_rows": table.failed_rows,
             "validation_status": table.validation_status, "mismatch_rows": table.mismatch_rows,
+            "error_message": table.error_message,
             "validation_details": json.dumps(validation_by_table.get(str(table.id))),
         })
     errors = db.query(MigrationRowError).filter_by(run_id=run.id).order_by(MigrationRowError.created_at).limit(5000).all()
