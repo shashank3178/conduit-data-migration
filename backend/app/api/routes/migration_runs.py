@@ -117,11 +117,13 @@ def get_run_report(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
     tables = db.query(MigrationRunTable).filter_by(run_id=run.id).order_by(MigrationRunTable.source_schema, MigrationRunTable.source_table).all()
     errors = db.query(MigrationRowError).filter_by(run_id=run.id).order_by(MigrationRowError.created_at).limit(5000).all()
     events = db.query(MigrationRunEvent).filter_by(run_id=run.id).order_by(MigrationRunEvent.created_at).limit(10000).all()
+    validation_events = db.query(MigrationRunEvent).filter_by(
+        run_id=run.id, event_type="validation_finished"
+    ).all()
     validation_by_table = {
         str(event.run_table_id): event.details.get("validation")
-        for event in events
-        if event.event_type == "validation_finished"
-        and event.run_table_id is not None
+        for event in validation_events
+        if event.run_table_id is not None
         and isinstance(event.details, dict)
         and isinstance(event.details.get("validation"), dict)
     }
