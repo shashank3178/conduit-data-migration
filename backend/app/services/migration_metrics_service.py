@@ -95,6 +95,10 @@ def record_committed_batch(
         db.query(func.coalesce(func.max(MigrationBatchMetric.sequence), 0))
         .filter_by(run_table_id=progress.id).scalar() or 0
     ) + 1
+    batch_network_rtt_ms = (
+        round(sum(network_rtt_ms.values()) / len(network_rtt_ms), 2)
+        if isinstance(network_rtt_ms, dict) and network_rtt_ms else network_rtt_ms
+    )
     db.add(MigrationBatchMetric(
         run_id=run.id,
         run_table_id=progress.id,
@@ -109,7 +113,7 @@ def record_committed_batch(
         duration_ms=duration_ms,
         source_fetch_duration_ms=source_fetch_duration_ms,
         destination_write_duration_ms=destination_write_duration_ms,
-        network_rtt_ms=network_rtt_ms,
+        network_rtt_ms=batch_network_rtt_ms,
         checkpoint_start=checkpoint_start,
         checkpoint_end=checkpoint_end,
     ))
