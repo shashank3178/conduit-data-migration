@@ -602,7 +602,7 @@ def _validate_table_detailed(
             destination, table.destination_schema, table.destination_table,
             destination_columns, destination_pk,
         )
-    except Exception as exc:
+    except (psycopg.Error, AttributeError, NotImplementedError) as exc:
         # If COPY is unavailable to a role/driver/test double, preserve correctness
         # by falling back to the exact mapped-column comparison below.
         fingerprint_error = _execution_error_detail(exc)
