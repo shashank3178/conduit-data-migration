@@ -122,7 +122,7 @@ export default function MigrationPlanningClient({
         const nextTables = await loadPlanTables(projectId, result.id);
         setTables(nextTables);
         setActiveTableId(nextTables[0]?.id ?? "");
-        setNotice("Migration plan created. Select the source tables to include.");
+        setNotice("Migration plan created. Select tables using measured storage footprint; row estimates are diagnostic only.");
       },
     );
   }
@@ -275,7 +275,7 @@ export default function MigrationPlanningClient({
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button disabled={busy || !projectId || !sourceId || !destinationId || sourceId === destinationId} onClick={createPlan} className="rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Create migration plan</button>
-          <span className="text-xs text-slate-500">Both connections must have completed Phase 3 discovery.</span>
+          <span className="text-xs text-slate-500">Plan creation automatically discovers both live databases and measures table storage sizes.</span>
         </div>
         {connections.length === 0 && <p className="mt-3 text-sm text-amber-700">No database connections found for this project.</p>}
         {!planId && error && <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
@@ -294,7 +294,7 @@ export default function MigrationPlanningClient({
             <div className="mt-4 overflow-x-auto">
               <table className="w-full min-w-[760px] text-left text-sm">
                 <thead className="border-b bg-slate-50 text-xs uppercase text-slate-500">
-                  <tr><th className="p-3">Include</th><th className="p-3">Source table</th><th className="p-3">Rows (estimate)</th><th className="p-3">Destination schema</th><th className="p-3">Destination table</th><th className="p-3">Target</th></tr>
+                  <tr><th className="p-3">Include</th><th className="p-3">Source table</th><th className="p-3">Source size</th><th className="p-3">Destination schema</th><th className="p-3">Destination table</th><th className="p-3">Target</th></tr>
                 </thead>
                 <tbody className="divide-y">
                   {tables.map((table) => (
@@ -304,7 +304,7 @@ export default function MigrationPlanningClient({
                         <button onClick={() => setActiveTableId(table.id)} className="text-left font-medium text-blue-700 hover:underline">{table.source_schema}.{table.source_table}</button>
                         <div className="text-xs text-slate-500">{table.source_table_type} · {table.column_count} columns</div>
                       </td>
-                      <td className="p-3 text-slate-600">{table.estimated_rows?.toLocaleString() ?? "—"}</td>
+                      <td className="p-3 text-slate-600">{table.source_size_bytes == null ? "Not measured" : table.source_size_bytes >= 1024 ** 3 ? `${(table.source_size_bytes / 1024 ** 3).toFixed(2)} GB` : `${(table.source_size_bytes / 1024 ** 2).toFixed(1)} MB`}</td>
                       <td className="p-3"><input value={table.destination_schema} onChange={(event) => updateTableLocal(table.id, { destination_schema: event.target.value })} className="w-36 rounded border p-2" /></td>
                       <td className="p-3"><input value={table.destination_table} onChange={(event) => updateTableLocal(table.id, { destination_table: event.target.value })} className="w-40 rounded border p-2" /></td>
                       <td className="p-3">{table.destination_exists ? <span className="text-emerald-700">Existing</span> : <span className="text-slate-500">Create</span>}</td>
