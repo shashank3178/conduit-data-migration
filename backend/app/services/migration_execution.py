@@ -25,13 +25,13 @@ from app.models.migration_run import (
 )
 from app.services.connection_service import decrypt_password
 from app.services.migration_metrics_service import (
-    logical_payload_bytes,
     ensure_run_metric,
     finish_run_metric,
+    logical_payload_bytes,
+    measure_network_rtt,
     record_committed_batch,
     record_database_snapshot,
     record_table_storage_snapshot,
-    measure_network_rtt,
 )
 
 
