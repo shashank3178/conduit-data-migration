@@ -119,7 +119,8 @@ def get_run_metrics(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID
     _owned_run(db, user, project_id, plan_id, run_id)
     run_metric = db.query(MigrationRunMetric).filter_by(run_id=run_id).one_or_none()
     table_metrics = db.query(MigrationTableMetric).filter_by(run_id=run_id).all()
-    batches = db.query(MigrationBatchMetric).filter_by(run_id=run_id).order_by(MigrationBatchMetric.created_at).all()
+    batches = db.query(MigrationBatchMetric).filter_by(run_id=run_id).order_by(MigrationBatchMetric.created_at.desc()).limit(20).all()
+    batches.reverse()
     return {
         "run": ({
             "logical_bytes": run_metric.logical_bytes,
