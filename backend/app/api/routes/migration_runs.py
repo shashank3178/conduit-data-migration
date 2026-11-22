@@ -9,7 +9,11 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
-from app.models.migration_metrics import MigrationBatchMetric, MigrationRunMetric, MigrationTableMetric
+from app.models.migration_metrics import (
+    MigrationBatchMetric,
+    MigrationRunMetric,
+    MigrationTableMetric,
+)
 from app.models.migration_plan import MigrationColumnMapping, MigrationPlanTable
 from app.models.migration_run import (
     MigrationRowError,
