@@ -63,3 +63,12 @@ export async function getMigrationPlanMetrics(projectId: string, planId: string)
     { cache: "no-store" },
   );
 }
+
+
+export async function getMigrationRunMetrics(projectId: string, planId: string, runId: string) {
+  return apiRequest<any>(
+    `/projects/${projectId}/migration-plans/${planId}/runs/${runId}/metrics`,
+    await token(),
+    { cache: "no-store" },
+  );
+}

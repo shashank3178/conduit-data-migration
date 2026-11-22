@@ -9,6 +9,7 @@ import {
   loadProjectPlanningData,
   previewDestinationDDL,
   regenerateMappingSuggestions,
+  rediscoverDestination,
   saveColumnMappings,
   saveTableSelection,
   validateMigrationPlan,
@@ -203,6 +204,19 @@ export default function MigrationPlanningClient({
     });
   }
 
+  async function rediscoverDestinationSchema() {
+    if (!planId || !destinationId) return;
+    await run(async () => {
+      const result = await rediscoverDestination(projectId, planId, destinationId);
+      const refreshedTables = await loadPlanTables(projectId, planId);
+      setTables(refreshedTables);
+      setActiveTableId((current) => refreshedTables.some((table:any) => table.id === current) ? current : (refreshedTables[0]?.id ?? ""));
+      setValidation(null);
+      setDdl(null);
+      return result;
+    }, () => setNotice("Destination rediscovered. The plan has been refreshed against the live database schema."));
+  }
+
   async function applyDDL() {
     if (!planId) return;
     if (!window.confirm("Apply the displayed CREATE SCHEMA / CREATE TABLE statements to the destination database? No rows will be transferred.")) return;
@@ -341,6 +355,7 @@ export default function MigrationPlanningClient({
               <button disabled={busy} onClick={validate} className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold hover:bg-slate-50">Validate plan</button>
               <button disabled={busy} onClick={preview} className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold hover:bg-slate-50">Preview destination DDL</button>
               <button disabled={busy || !ddl?.statements?.length} onClick={applyDDL} className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">Apply DDL to destination</button>
+              <button disabled={busy || !destinationId} onClick={rediscoverDestinationSchema} className="rounded-lg border border-indigo-200 px-4 py-2.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">Rediscover destination</button>
             </div>
             {validation && (
               <div className="mt-4 rounded-lg border p-4">

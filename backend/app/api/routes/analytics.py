@@ -116,6 +116,13 @@ def analytics_run_detail(
     batches = db.query(MigrationBatchMetric).filter_by(run_id=run.id).order_by(
         MigrationBatchMetric.created_at.desc()
     ).limit(100).all()
+    validation_events = db.query(MigrationRunEvent).filter_by(run_id=run.id, event_type="validation_finished").all()
+    validation_by_table = {
+        str(event.run_table_id): event.details.get("validation")
+        for event in validation_events
+        if event.run_table_id is not None and isinstance(event.details, dict)
+        and isinstance(event.details.get("validation"), dict)
+    }
     databases = db.query(MigrationDatabaseMetric).filter_by(run_id=run.id).order_by(
         MigrationDatabaseMetric.captured_at.desc()
     ).limit(20).all()
@@ -138,6 +145,10 @@ def analytics_run_detail(
             "processing_duration_ms": run_metric.processing_duration_ms,
             "rows_per_second": run_metric.rows_per_second,
             "logical_bytes_per_second": run_metric.logical_bytes_per_second,
+            "source_fetch_duration_ms": run_metric.source_fetch_duration_ms,
+            "destination_write_duration_ms": run_metric.destination_write_duration_ms,
+            "source_network_rtt_ms": run_metric.source_network_rtt_ms,
+            "destination_network_rtt_ms": run_metric.destination_network_rtt_ms,
         },
         "tables": [{
             "id": str(item.id), "source": f"{item.source_schema}.{item.source_table}",
@@ -146,6 +157,7 @@ def analytics_run_detail(
             "inserted_rows": item.inserted_rows, "updated_rows": item.updated_rows,
             "skipped_rows": item.skipped_rows, "failed_rows": item.failed_rows,
             "validation_status": item.validation_status, "mismatch_rows": item.mismatch_rows,
+            "validation_details": validation_by_table.get(str(item.id)),
             "metrics": None if item.id not in table_metrics else {
                 "rows_fetched": table_metrics[item.id].rows_fetched,
                 "rows_committed": table_metrics[item.id].rows_committed,
@@ -162,6 +174,9 @@ def analytics_run_detail(
             "rows_inserted": item.rows_inserted, "rows_updated": item.rows_updated,
             "rows_skipped": item.rows_skipped, "rows_failed": item.rows_failed,
             "logical_bytes": item.logical_bytes, "duration_ms": item.duration_ms,
+            "source_fetch_duration_ms": item.source_fetch_duration_ms,
+            "destination_write_duration_ms": item.destination_write_duration_ms,
+            "network_rtt_ms": item.network_rtt_ms,
             "checkpoint_start": item.checkpoint_start, "checkpoint_end": item.checkpoint_end,
             "created_at": item.created_at,
         } for item in batches],

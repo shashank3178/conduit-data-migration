@@ -32,3 +32,22 @@ export async function createAndTestConnection(projectId: string, payload: {
   }
   return { connection, test };
 }
+
+
+export async function updateConnection(projectId: string, connectionId: string, payload: Record<string, unknown>) {
+  return apiRequest<any>(`/projects/${projectId}/connections/${connectionId}`, await getToken(), {
+    method: "PATCH", body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteConnection(projectId: string, connectionId: string) {
+  return apiRequest<void>(`/projects/${projectId}/connections/${connectionId}`, await getToken(), {
+    method: "DELETE",
+  });
+}
+
+export async function discoverConnection(projectId: string, connectionId: string) {
+  return apiRequest<any>(`/projects/${projectId}/connections/${connectionId}/discover`, await getToken(), {
+    method: "POST",
+  });
+}

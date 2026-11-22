@@ -18,12 +18,13 @@ type Connection = {
 };
 
 export default function DiscoveryClient({
-  projects, connectionsByProject,
+  projects, connectionsByProject, initialProjectId,
 }: {
   projects: Project[];
   connectionsByProject: Record<string, Connection[]>;
+  initialProjectId?: string;
 }) {
-  const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
+  const [projectId, setProjectId] = useState(initialProjectId && projects.some((project) => project.id === initialProjectId) ? initialProjectId : (projects[0]?.id ?? ""));
   const connections = connectionsByProject[projectId] ?? [];
   const [connectionId, setConnectionId] = useState(connections[0]?.id ?? "");
   const [snapshot, setSnapshot] = useState<DiscoverySnapshot | null>(null);

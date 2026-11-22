@@ -1,6 +1,7 @@
 """Idempotent migration metrics and PostgreSQL storage measurements."""
 import hashlib
 import json
+import time
 from datetime import UTC, datetime
 
 import psycopg
@@ -38,6 +39,8 @@ _RUN_COUNTER_FIELDS = (
     "processing_duration_ms",
     "rows_per_second",
     "logical_bytes_per_second",
+    "source_fetch_duration_ms",
+    "destination_write_duration_ms",
 )
 _TABLE_COUNTER_FIELDS = (
     "rows_fetched",
@@ -67,6 +70,8 @@ def ensure_run_metric(db, run):
             processing_duration_ms=0,
             rows_per_second=0,
             logical_bytes_per_second=0,
+            source_fetch_duration_ms=0,
+            destination_write_duration_ms=0,
         )
         db.add(metric)
         db.flush()
@@ -77,6 +82,8 @@ def ensure_run_metric(db, run):
 def record_committed_batch(
     db, run, progress, rows, inserted, updated, skipped, failed,
     checkpoint_start, checkpoint_end, duration_ms,
+    source_fetch_duration_ms=0, destination_write_duration_ms=0,
+    network_rtt_ms=None,
 ):
     """Persist one committed batch in the same metadata transaction as its checkpoint."""
     key = batch_identity(progress.id, checkpoint_start, checkpoint_end)
@@ -89,6 +96,10 @@ def record_committed_batch(
         db.query(func.coalesce(func.max(MigrationBatchMetric.sequence), 0))
         .filter_by(run_table_id=progress.id).scalar() or 0
     ) + 1
+    batch_network_rtt_ms = (
+        round(sum(network_rtt_ms.values()) / len(network_rtt_ms), 2)
+        if isinstance(network_rtt_ms, dict) and network_rtt_ms else network_rtt_ms
+    )
     db.add(MigrationBatchMetric(
         run_id=run.id,
         run_table_id=progress.id,
@@ -101,6 +112,9 @@ def record_committed_batch(
         rows_failed=failed,
         logical_bytes=logical_bytes,
         duration_ms=duration_ms,
+        source_fetch_duration_ms=source_fetch_duration_ms,
+        destination_write_duration_ms=destination_write_duration_ms,
+        network_rtt_ms=batch_network_rtt_ms,
         checkpoint_start=checkpoint_start,
         checkpoint_end=checkpoint_end,
     ))
@@ -112,6 +126,11 @@ def record_committed_batch(
     run_metric.batches_committed += 1
     run_metric.logical_bytes += logical_bytes
     run_metric.processing_duration_ms += duration_ms
+    run_metric.source_fetch_duration_ms += source_fetch_duration_ms
+    run_metric.destination_write_duration_ms += destination_write_duration_ms
+    if network_rtt_ms is not None:
+        run_metric.source_network_rtt_ms = network_rtt_ms.get("source")
+        run_metric.destination_network_rtt_ms = network_rtt_ms.get("destination")
     seconds = run_metric.processing_duration_ms / 1000
     run_metric.rows_per_second = run_metric.rows_committed / seconds if seconds else 0
     run_metric.logical_bytes_per_second = run_metric.logical_bytes / seconds if seconds else 0
@@ -199,3 +218,11 @@ def record_table_storage_snapshot(db, run, progress, source, destination):
 def finish_run_metric(db, run):
     metric = ensure_run_metric(db, run)
     metric.finished_at = run.finished_at or datetime.now(UTC)
+
+
+def measure_network_rtt(connection):
+    """Measure one PostgreSQL request/response round trip; this is latency, not bandwidth."""
+    started = time.monotonic()
+    with connection.transaction():
+        connection.execute("SELECT 1").fetchone()
+    return round((time.monotonic() - started) * 1000, 2)

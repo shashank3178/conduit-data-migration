@@ -103,3 +103,15 @@ export async function applyDestinationDDL(projectId: string, planId: string) {
     { method: "POST" },
   );
 }
+
+
+export async function rediscoverDestination(projectId: string, planId: string, connectionId: string) {
+  const token = await accessToken();
+  const discovery = await apiRequest<any>(
+    `/projects/${projectId}/connections/${connectionId}/discover`, token,
+    { method: "POST" },
+  );
+  // The DDL preview refreshes selected plan targets from the live destination catalog.
+  await apiRequest<any>(`/projects/${projectId}/migration-plans/${planId}/ddl`, token, { cache: "no-store" });
+  return discovery;
+}

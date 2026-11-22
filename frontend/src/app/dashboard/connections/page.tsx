@@ -5,9 +5,10 @@ import { apiRequest } from "@/lib/api";
 import AppShell from "@/components/layout/app-shell";
 import { ArrowUpRight, Cable, Database, Server, ShieldCheck } from "lucide-react";
 import ConnectionCreateForm from "./connection-create-form";
+import ConnectionManagement from "./connection-management";
 
 type Project = { id: string; name: string };
-type Connection = { id: string; name: string; role: "source" | "destination"; database: string; host: string; port: number; status?: string; db_type?: string };
+type Connection = { id: string; name: string; role: "source" | "destination"; database: string; host: string; port: number; username: string; sslmode: string; status?: string; db_type?: string };
 
 export default async function ConnectionsPage() {
   const session = await auth0.getSession();
@@ -37,6 +38,7 @@ export default async function ConnectionsPage() {
         <div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3"><span className={`flex h-11 w-11 items-center justify-center rounded-xl ${connection.role==="source"?"bg-sky-50 text-sky-700":"bg-violet-50 text-violet-700"}`}><Database size={20}/></span><div><h2 className="text-sm font-semibold text-slate-900">{connection.name}</h2><p className="mt-0.5 text-[11px] text-slate-400">{project.name}</p></div></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${connection.role==="source"?"bg-sky-50 text-sky-700":"bg-violet-50 text-violet-700"}`}>{connection.role}</span></div>
         <div className="mt-5 grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-2"><Detail label="Host" value={connection.host}/><Detail label="Database" value={connection.database}/><Detail label="Port" value={String(connection.port)}/><Detail label="Connection type" value={connection.db_type ?? "PostgreSQL / configured"}/></div>
         <div className="mt-4 flex items-center gap-2 text-[11px] text-slate-500"><Server size={13}/> Connection details are shown without credentials.</div>
+        <ConnectionManagement projectId={project.id} connection={connection}/>
       </article>)}</div> : <div className="conduit-card px-6 py-14 text-center"><Cable size={26} className="mx-auto text-slate-400"/><h2 className="mt-3 text-sm font-semibold">No connections registered</h2><p className="mt-1 text-xs text-slate-500">Add source and destination connections to a project before creating a migration plan.</p><Link href="/dashboard/migration-planning" className="mt-4 inline-flex rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white">Open migration planner</Link></div>}
     </div>
   </AppShell>;

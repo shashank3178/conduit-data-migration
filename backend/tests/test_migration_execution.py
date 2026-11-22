@@ -144,6 +144,14 @@ def test_validation_returns_actionable_counts_and_closes_read_transactions():
     assert result["changed_rows"] == 1
     assert result["matched_rows"] == 2
     assert result["mismatch_rows"] == 3
+    assert result["exact_match_rows"] == 1
+    assert result["data_consistency_percent"] == 33.3333
+    assert result["validation_checks"] == {
+        "row_count_match": True,
+        "primary_key_set_match": False,
+        "mapped_column_values_match": False,
+        "all_rows_exact_match": False,
+    }
     assert {sample["reason"] for sample in result["samples"]} == {
         "MISSING_IN_DESTINATION", "EXTRA_IN_DESTINATION", "COLUMN_VALUE_MISMATCH",
     }
@@ -168,6 +176,8 @@ def test_validation_detects_destination_rows_for_empty_source_table():
     assert result["destination_rows"] == 1
     assert result["extra_in_destination"] == 1
     assert result["mismatch_rows"] == 1
+    assert result["data_consistency_percent"] == 0.0
+    assert result["validation_checks"]["row_count_match"] is False
     assert result["samples"][0]["reason"] == "EXTRA_IN_DESTINATION"
 
 

@@ -9,6 +9,11 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
+from app.models.migration_metrics import (
+    MigrationBatchMetric,
+    MigrationRunMetric,
+    MigrationTableMetric,
+)
 from app.models.migration_plan import MigrationColumnMapping, MigrationPlanTable
 from app.models.migration_run import (
     MigrationRowError,
@@ -111,6 +116,56 @@ def get_run_errors(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
 def get_run_events(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     _owned_run(db, user, project_id, plan_id, run_id)
     return db.query(MigrationRunEvent).filter_by(run_id=run_id).order_by(MigrationRunEvent.created_at).limit(10000).all()
+
+@router.get("/{run_id}/metrics")
+def get_run_metrics(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
+                    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _owned_run(db, user, project_id, plan_id, run_id)
+    run_metric = db.query(MigrationRunMetric).filter_by(run_id=run_id).one_or_none()
+    table_metrics = db.query(MigrationTableMetric).filter_by(run_id=run_id).all()
+    batches = db.query(MigrationBatchMetric).filter_by(run_id=run_id).order_by(MigrationBatchMetric.created_at.desc()).limit(20).all()
+    batches.reverse()
+    return {
+        "run": ({
+            "logical_bytes": run_metric.logical_bytes,
+            "rows_fetched": run_metric.rows_fetched,
+            "rows_committed": run_metric.rows_committed,
+            "batches_committed": run_metric.batches_committed,
+            "processing_duration_ms": run_metric.processing_duration_ms,
+            "rows_per_second": run_metric.rows_per_second,
+            "logical_bytes_per_second": run_metric.logical_bytes_per_second,
+            "source_fetch_duration_ms": run_metric.source_fetch_duration_ms,
+            "destination_write_duration_ms": run_metric.destination_write_duration_ms,
+            "source_network_rtt_ms": run_metric.source_network_rtt_ms,
+            "destination_network_rtt_ms": run_metric.destination_network_rtt_ms,
+        } if run_metric else None),
+        "tables": [{
+            "run_table_id": str(item.run_table_id),
+            "logical_bytes": item.logical_bytes,
+            "rows_fetched": item.rows_fetched,
+            "rows_committed": item.rows_committed,
+            "batches_committed": item.batches_committed,
+            "source_physical_bytes": item.source_physical_bytes,
+            "destination_physical_bytes": item.destination_physical_bytes,
+            "storage_measured_at": item.storage_measured_at.isoformat() if item.storage_measured_at else None,
+        } for item in table_metrics],
+        "recent_batches": [{
+            "run_table_id": str(item.run_table_id),
+            "sequence": item.sequence,
+            "logical_bytes": item.logical_bytes,
+            "rows_fetched": item.rows_fetched,
+            "rows_inserted": item.rows_inserted,
+            "rows_updated": item.rows_updated,
+            "rows_skipped": item.rows_skipped,
+            "rows_failed": item.rows_failed,
+            "duration_ms": item.duration_ms,
+            "source_fetch_duration_ms": item.source_fetch_duration_ms,
+            "destination_write_duration_ms": item.destination_write_duration_ms,
+            "network_rtt_ms": item.network_rtt_ms,
+            "created_at": item.created_at.isoformat() if item.created_at else None,
+        } for item in batches[-20:]],
+    }
+
 
 @router.get("/{run_id}/report")
 def get_run_report(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):

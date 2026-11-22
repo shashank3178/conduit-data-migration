@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 import psycopg
 from psycopg import sql
+from psycopg.types.json import Json, Jsonb
 from sqlalchemy import select
 
 from app.db.session import SessionLocal
@@ -27,6 +28,8 @@ from app.services.connection_service import decrypt_password
 from app.services.migration_metrics_service import (
     ensure_run_metric,
     finish_run_metric,
+    logical_payload_bytes,
+    measure_network_rtt,
     record_committed_batch,
     record_database_snapshot,
     record_table_storage_snapshot,
@@ -133,47 +136,225 @@ def _fetch_batch(source, table, pk_columns, source_columns, batch_size, last_key
     return source.execute(query, params).fetchall()
 
 
-def _write_batch(destination, table, destination_columns, conflict_columns, rows, strategy):
+def _get_destination_column_types(destination, table, destination_columns):
+    """
+    Retrieve destination PostgreSQL column types once per table.
+
+    This metadata is used to adapt Python values correctly before
+    passing them to Psycopg.
+    """
+    rows = destination.execute(
+        """
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = %s
+          AND table_name = %s
+          AND column_name = ANY(%s)
+        """,
+        (
+            table.destination_schema,
+            table.destination_table,
+            destination_columns,
+        ),
+    ).fetchall()
+
+    column_types = {
+        column_name: data_type.lower()
+        for column_name, data_type in rows
+    }
+
+    missing_columns = [
+        column
+        for column in destination_columns
+        if column not in column_types
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            f"Destination metadata lookup failed for "
+            f"{table.destination_schema}.{table.destination_table}. "
+            f"Columns not found: {missing_columns}"
+        )
+
+    return column_types
+
+
+def _adapt_write_values(rows, destination_columns, column_types):
+    """
+    Adapt Python values to their destination PostgreSQL types.
+
+    JSON dictionaries and arrays are explicitly wrapped using Psycopg's
+    JSON adapters. Other values retain their original representation.
+    """
+    flat_values = []
+
+    for row_index, row in enumerate(rows):
+        if len(row) != len(destination_columns):
+            raise ValueError(
+                f"Batch row {row_index} has {len(row)} values, "
+                f"but {len(destination_columns)} destination columns."
+            )
+
+        for column, value in zip(
+            destination_columns,
+            row,
+            strict=True,
+        ):
+            destination_type = column_types.get(column, "").lower()
+
+            if isinstance(value, (dict, list)) and destination_type in {
+                "json",
+                "jsonb",
+            }:
+                if destination_type == "json":
+                    value = Json(value)
+                else:
+                    value = Jsonb(value)
+
+            elif isinstance(value, dict):
+                raise TypeError(
+                    f"Unsupported dictionary value during migration. "
+                    f"Destination column: {column}; "
+                    f"destination PostgreSQL type: {destination_type}; "
+                    f"Python source type: dict. "
+                    f"Map this column to a JSON or JSONB destination column."
+                )
+
+            flat_values.append(value)
+
+    return flat_values
+
+
+def _write_batch(
+    destination,
+    table,
+    destination_columns,
+    conflict_columns,
+    rows,
+    strategy,
+    destination_column_types=None,
+):
+    """
+    Write a batch to PostgreSQL with destination-aware value adaptation.
+
+    Supports INSERT, UPSERT, JSON and JSONB values.
+    """
     if not rows:
         return 0, 0, 0
+
     width = len(destination_columns)
+
+    destination_column_types = destination_column_types or {}
+    flat_values = _adapt_write_values(
+        rows,
+        destination_columns,
+        destination_column_types,
+    )
+
     values_sql = sql.SQL(", ").join(
-        sql.SQL("({})").format(sql.SQL(", ").join(sql.Placeholder() for _ in range(width)))
+        sql.SQL("({})").format(
+            sql.SQL(", ").join(
+                sql.Placeholder() for _ in range(width)
+            )
+        )
         for _ in rows
     )
-    query = sql.SQL("INSERT INTO {}.{} ({}) VALUES {}").format(
-        sql.Identifier(table.destination_schema), sql.Identifier(table.destination_table),
-        sql.SQL(", ").join(map(sql.Identifier, destination_columns)), values_sql,
+
+    query = sql.SQL(
+        "INSERT INTO {}.{} ({}) VALUES {}"
+    ).format(
+        sql.Identifier(table.destination_schema),
+        sql.Identifier(table.destination_table),
+        sql.SQL(", ").join(
+            map(sql.Identifier, destination_columns)
+        ),
+        values_sql,
     )
-    flat_values = [value for row in rows for value in row]
+
+    # Adapt values before sending them to Psycopg.
+    flat_values = _adapt_write_values(
+        rows,
+        destination_columns,
+        destination_column_types,
+    )
+
     if strategy == "UPSERT":
-        update_columns = [name for name in destination_columns if name not in conflict_columns]
+        update_columns = [
+            name
+            for name in destination_columns
+            if name not in conflict_columns
+        ]
+
         if update_columns:
             assignments = sql.SQL(", ").join(
-                sql.SQL("{} = EXCLUDED.{}").format(sql.Identifier(name), sql.Identifier(name))
-                for name in update_columns
-            )
-            changed = sql.SQL(" OR ").join(
-                sql.SQL("{}.{} IS DISTINCT FROM EXCLUDED.{}").format(
-                    sql.Identifier(table.destination_table), sql.Identifier(name), sql.Identifier(name)
+                sql.SQL("{} = EXCLUDED.{}").format(
+                    sql.Identifier(name),
+                    sql.Identifier(name),
                 )
                 for name in update_columns
             )
-            query += sql.SQL(" ON CONFLICT ({}) DO UPDATE SET {} WHERE {}").format(
-                sql.SQL(", ").join(map(sql.Identifier, conflict_columns)), assignments, changed,
+
+            changed = sql.SQL(" OR ").join(
+                sql.SQL(
+                    "{}.{} IS DISTINCT FROM EXCLUDED.{}"
+                ).format(
+                    sql.Identifier(table.destination_table),
+                    sql.Identifier(name),
+                    sql.Identifier(name),
+                )
+                for name in update_columns
             )
+
+            query += sql.SQL(
+                " ON CONFLICT ({}) DO UPDATE SET {} WHERE {}"
+            ).format(
+                sql.SQL(", ").join(
+                    map(sql.Identifier, conflict_columns)
+                ),
+                assignments,
+                changed,
+            )
+
         else:
-            query += sql.SQL(" ON CONFLICT ({}) DO NOTHING").format(
-                sql.SQL(", ").join(map(sql.Identifier, conflict_columns))
+            query += sql.SQL(
+                " ON CONFLICT ({}) DO NOTHING"
+            ).format(
+                sql.SQL(", ").join(
+                    map(sql.Identifier, conflict_columns)
+                )
             )
+
         query += sql.SQL(" RETURNING (xmax = 0)")
-        returned = destination.execute(query, flat_values).fetchall()
-        inserted = sum(1 for row in returned if row[0])
+
+        returned = destination.execute(
+            query,
+            flat_values,
+        ).fetchall()
+
+        inserted = sum(
+            1 for row in returned if row[0]
+        )
+
         updated = len(returned) - inserted
-        return inserted, updated, len(rows) - len(returned)
-    query += sql.SQL(" ON CONFLICT DO NOTHING RETURNING 1")
-    inserted = len(destination.execute(query, flat_values).fetchall())
-    return inserted, 0, len(rows) - inserted
+
+        skipped = len(rows) - len(returned)
+
+        return inserted, updated, skipped
+
+    query += sql.SQL(
+        " ON CONFLICT DO NOTHING RETURNING 1"
+    )
+
+    inserted = len(
+        destination.execute(
+            query,
+            flat_values,
+        ).fetchall()
+    )
+
+    skipped = len(rows) - inserted
+
+    return inserted, 0, skipped
 
 
 def _execution_error_detail(exc: Exception) -> str:
@@ -211,35 +392,80 @@ def _is_row_level_write_error(exc: psycopg.Error) -> bool:
     return state.startswith(("22", "23"))
 
 
-def _write_with_isolation(destination, db, run, progress, table, destination_columns,
-                          conflict_columns, key_columns, rows, keys, strategy):
+def _write_with_isolation(
+    destination,
+    db,
+    run,
+    progress,
+    table,
+    destination_columns,
+    destination_column_types,
+    conflict_columns,
+    key_columns,
+    rows,
+    keys,
+    strategy,
+):
     try:
         with destination.transaction():
-            result = _write_batch(destination, table, destination_columns, conflict_columns, rows, strategy)
+            result = _write_batch(
+                destination,
+                table,
+                destination_columns,
+                conflict_columns,
+                rows,
+                strategy,
+                destination_column_types,
+            )
+
         return (*result, 0, [])
+
     except psycopg.OperationalError:
         raise
+
     except psycopg.Error as exc:
         if not _is_row_level_write_error(exc):
             raise
+
         inserted = updated = skipped = failed = 0
         failed_keys = []
+
         with destination.transaction():
             for row, key in zip(rows, keys, strict=True):
                 try:
                     with destination.transaction():
-                        outcome = _write_batch(destination, table, destination_columns, conflict_columns, [row], strategy)
+                        outcome = _write_batch(
+                            destination,
+                            table,
+                            destination_columns,
+                            conflict_columns,
+                            [row],
+                            strategy,
+                            destination_column_types,
+                        )
+
                     inserted += outcome[0]
                     updated += outcome[1]
                     skipped += outcome[2]
+
                 except psycopg.OperationalError:
                     raise
+
                 except psycopg.Error as exc:
                     failed += 1
                     failed_keys.append(key)
-                    _record_row_error(db, run, progress, key, key_columns, exc)
-        return inserted, updated, skipped, failed, failed_keys
 
+                    _record_row_error(
+                        db,
+                        run,
+                        progress,
+                        key,
+                        key_columns,
+                        exc,
+                    )
+
+        return inserted, updated, skipped, failed, failed_keys
+    
 
 def _cursor_rows(cursor, size):
     while True:
@@ -411,6 +637,28 @@ def _validate_table_detailed(
         + details["extra_in_destination"]
         + details["changed_rows"]
     )
+    details["exact_match_rows"] = max(
+        0, details["matched_rows"] - details["changed_rows"]
+    )
+    details["row_count_delta"] = (
+        details["destination_rows"] - details["source_rows"]
+    )
+    comparison_denominator = max(
+        details["source_rows"], details["destination_rows"]
+    )
+    details["data_consistency_percent"] = (
+        round(details["exact_match_rows"] / comparison_denominator * 100, 4)
+        if comparison_denominator else 100.0
+    )
+    details["validation_checks"] = {
+        "row_count_match": details["row_count_delta"] == 0,
+        "primary_key_set_match": (
+            details["missing_in_destination"] == 0
+            and details["extra_in_destination"] == 0
+        ),
+        "mapped_column_values_match": details["changed_rows"] == 0,
+        "all_rows_exact_match": details["mismatch_rows"] == 0,
+    }
     return details
 
 
@@ -446,6 +694,14 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
             destination_record = db.get(DatabaseConnection, plan.destination_connection_id)
             source = _connect(source_record)
             destination = _connect(destination_record)
+            network_rtt = {
+                "source": measure_network_rtt(source),
+                "destination": measure_network_rtt(destination),
+            }
+            run_metric = ensure_run_metric(db, run)
+            run_metric.source_network_rtt_ms = network_rtt["source"]
+            run_metric.destination_network_rtt_ms = network_rtt["destination"]
+            db.commit()
             record_database_snapshot(db, run, source_record, "source", source)
             record_database_snapshot(db, run, destination_record, "destination", destination)
             db.commit()
@@ -472,10 +728,32 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 mapping = dict(pairs)
                 if any(key not in mapping for key in source_pk):
                     raise ValueError(f"All primary-key columns must be included and mapped for {table.source_table}.")
-                source_columns = [source_name for source_name, _ in pairs]
-                destination_columns = [destination_name for _, destination_name in pairs]
-                destination_pk = [mapping[key] for key in source_pk]
-                key_meta = [next(c for c in table.source_columns if c.get("name") == key) for key in source_pk]
+                source_columns = [
+                    source_name for source_name, _ in pairs
+                ]
+
+                destination_columns = [
+                    destination_name for _, destination_name in pairs
+                ]
+
+                destination_pk = [
+                    mapping[key] for key in source_pk
+                ]
+
+                key_meta = [
+                    next(
+                        c for c in table.source_columns
+                        if c.get("name") == key
+                    )
+                    for key in source_pk
+                ]
+
+                # Retrieve destination column types once per table.
+                destination_column_types = _get_destination_column_types(
+                    destination,
+                    table,
+                    destination_columns,
+                )
                 progress.status = "running"
                 if progress.upper_key is None:
                     upper = _fetch_upper_key(source, table, source_pk)
@@ -498,6 +776,8 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 while upper_key is not None:
                     if _cancel_requested(run_id):
                         break
+                    batch_started = time.monotonic()
+                    fetch_started = time.monotonic()
                     for source_attempt in range(run.max_retries + 1):
                         try:
                             batch = _fetch_batch(
@@ -514,17 +794,28 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                             time.sleep(min(2 ** source_attempt, 15))
                             source.close()
                             source = _connect(source_record)
+                    fetch_duration_ms = round((time.monotonic() - fetch_started) * 1000, 2)
                     if not batch:
                         break
                     keys = [tuple(row[source_columns.index(name)] for name in source_pk) for row in batch]
-                    batch_started = time.monotonic()
+                    write_started = time.monotonic()
                     checkpoint_start = list(last_key) if last_key is not None else None
                     for attempt in range(run.max_retries + 1):
                         try:
                             inserted, updated, skipped, failed, failed_keys = _write_with_isolation(
-                                destination, db, run, progress, table, destination_columns,
-                                destination_pk, source_pk, batch, keys, run.write_strategy,
-                            )
+                            destination,
+                            db,
+                            run,
+                            progress,
+                            table,
+                            destination_columns,
+                            destination_column_types,
+                            destination_pk,
+                            source_pk,
+                            batch,
+                            keys,
+                            run.write_strategy,
+                        )
                             break
                         except psycopg.OperationalError:
                             progress.retry_count += 1
@@ -534,6 +825,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                             time.sleep(min(2 ** attempt, 15))
                             destination.close()
                             destination = _connect(destination_record)
+                    destination_write_duration_ms = round((time.monotonic() - write_started) * 1000, 2)
                     last_key = keys[-1]
                     progress.last_key = _json_key(last_key)
                     if retrying_errors:
@@ -558,8 +850,11 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     record_committed_batch(
                         db, run, progress, batch, inserted, updated, skipped, failed,
                         checkpoint_start, progress.last_key, duration_ms,
+                        source_fetch_duration_ms=fetch_duration_ms,
+                        destination_write_duration_ms=destination_write_duration_ms,
+                        network_rtt_ms=network_rtt,
                     )
-                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, duration_ms=duration_ms)
+                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, logical_bytes=logical_payload_bytes(batch), duration_ms=duration_ms, source_fetch_duration_ms=fetch_duration_ms, destination_write_duration_ms=destination_write_duration_ms, source_network_rtt_ms=network_rtt["source"], destination_network_rtt_ms=network_rtt["destination"])
                     db.commit()
                 if _cancel_requested(run_id):
                     progress.status = "cancelled"

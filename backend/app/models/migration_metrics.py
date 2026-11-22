@@ -34,6 +34,10 @@ class MigrationRunMetric(Base):
     processing_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     rows_per_second: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     logical_bytes_per_second: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    source_fetch_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    destination_write_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    source_network_rtt_ms: Mapped[float | None] = mapped_column(Float)
+    destination_network_rtt_ms: Mapped[float | None] = mapped_column(Float)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
@@ -65,6 +69,9 @@ class MigrationBatchMetric(Base):
     rows_failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     logical_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    source_fetch_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    destination_write_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    network_rtt_ms: Mapped[float | None] = mapped_column(Float)
     checkpoint_start: Mapped[list | None] = mapped_column(JSONB)
     checkpoint_end: Mapped[list | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(

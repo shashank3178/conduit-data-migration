@@ -12,6 +12,7 @@ interface BackendUser { id: string; email: string | null; }
 interface Project { id: string; name: string; status?: string; created_at?: string; }
 interface Connection { id: string; name: string; role: "source" | "destination"; database: string; host: string; port: number; }
 interface Plan { id: string; name: string; status: string; }
+interface RecentRun { id: string; status: string; created_at: string; plan_id: string; project_id: string; }
 
 const statusTone: Record<string, string> = {
   ready: "bg-emerald-50 text-emerald-700",
@@ -29,6 +30,7 @@ export default async function DashboardPage() {
   let projects: Project[] = [];
   let connections: Connection[] = [];
   let plans: Plan[] = [];
+  let recentRuns: Array<{ run: RecentRun; plan: Plan; project: Project }> = [];
   let apiError: string | null = null;
 
   try {
@@ -45,10 +47,17 @@ export default async function DashboardPage() {
         apiRequest<Connection[]>(`/projects/${project.id}/connections`, token, { cache: "no-store" }),
         apiRequest<Plan[]>(`/projects/${project.id}/migration-plans`, token, { cache: "no-store" }),
       ]);
-      return { projectConnections, projectPlans };
+      const planRuns = await Promise.all(projectPlans.map(async (plan) => {
+        try {
+          const runs = await apiRequest<RecentRun[]>(`/projects/${project.id}/migration-plans/${plan.id}/runs`, token, { cache: "no-store" });
+          return runs.map((run) => ({ run, plan, project }));
+        } catch { return []; }
+      }));
+      return { projectConnections, projectPlans, planRuns: planRuns.flat() };
     }));
     connections = workspaceData.flatMap((item) => item.projectConnections);
     plans = workspaceData.flatMap((item) => item.projectPlans);
+    recentRuns = workspaceData.flatMap((item) => item.planRuns).sort((a,b) => new Date(b.run.created_at).getTime() - new Date(a.run.created_at).getTime()).slice(0,8);
   } catch (error) {
     backendStatus = "Needs attention";
     apiError = error instanceof Error ? error.message : "Unable to load workspace data.";
@@ -56,6 +65,12 @@ export default async function DashboardPage() {
 
   const sourceCount = connections.filter((item) => item.role === "source").length;
   const destinationCount = connections.filter((item) => item.role === "destination").length;
+  const providerCounts = connections.reduce((counts, connection) => {
+    const host = connection.host.toLowerCase();
+    const provider = host.includes("supabase") ? "Supabase" : host.includes("neon.tech") ? "Neon" : host.includes("render.com") ? "Render" : "PostgreSQL / other";
+    counts[provider] = (counts[provider] ?? 0) + 1;
+    return counts;
+  }, {} as Record<string, number>);
   const readyCount = plans.filter((item) => ["ready", "schema_prepared"].includes(item.status)).length;
   const draftCount = plans.filter((item) => item.status === "draft").length;
   const userLabel = session.user.name ?? session.user.email ?? "Workspace user";
@@ -92,6 +107,18 @@ export default async function DashboardPage() {
             <MetricCard label="Connections" value={connections.length} detail={`${sourceCount} sources · ${destinationCount} destinations`} icon={<Cable size={18}/>} tone="sky"/>
             <MetricCard label="Migration plans" value={plans.length} detail={`${readyCount} ready · ${draftCount} in draft`} icon={<Workflow size={18}/>} tone="violet"/>
             <MetricCard label="Backend status" value={backendStatus === "Connected" ? "Online" : "Check"} detail="Authenticated API connectivity" icon={<Database size={18}/>} tone={backendStatus === "Connected" ? "emerald" : "amber"}/>
+          </div>
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+          <div className="conduit-card p-5 sm:p-6">
+            <p className="conduit-eyebrow">Connection providers</p><h2 className="mt-1 text-lg font-semibold">Database footprint</h2>
+            <p className="mt-1 text-xs text-slate-500">Provider grouping is inferred from the saved hostname.</p>
+            <div className="mt-4 space-y-3">{Object.entries(providerCounts).sort((a,b)=>b[1]-a[1]).map(([provider,count])=><div key={provider} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5"><span className="text-sm font-medium text-slate-700">{provider}</span><span className="text-sm font-semibold tabular-nums text-slate-900">{count}</span></div>)}</div>
+          </div>
+          <div className="conduit-card p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-2"><div><p className="conduit-eyebrow">Execution history</p><h2 className="mt-1 text-lg font-semibold">Recent migrations</h2></div><Link href="/dashboard/activity" className="text-xs font-semibold text-indigo-700">All activity <ArrowRight size={12} className="inline"/></Link></div>
+            {recentRuns.length ? <div className="mt-4 divide-y divide-slate-100">{recentRuns.map(({run,plan,project})=><Link key={run.id} href={`/dashboard/migration-runs/${run.id}`} className="flex items-center justify-between gap-3 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-800">{plan.name}</p><p className="mt-0.5 truncate text-[11px] text-slate-500">{project.name} · {new Date(run.created_at).toLocaleString()}</p></div><span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold capitalize text-slate-600">{run.status.replaceAll("_"," ")}</span></Link>)}</div> : <p className="mt-4 rounded-lg bg-slate-50 p-4 text-xs text-slate-500">No migration runs have been queued yet.</p>}
           </div>
         </section>
 
