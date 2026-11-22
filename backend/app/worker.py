@@ -79,9 +79,9 @@ def main():
                     break
                 active.add(pool.submit(_execute_claimed, run_id, worker_id))
 
-            if active and len(active) >= concurrency:
+            if active:
                 wait(active, timeout=poll_seconds, return_when=FIRST_COMPLETED)
-            elif not active:
+            else:
                 time.sleep(poll_seconds)
 
         # Let in-flight batches finish their current destination transaction
