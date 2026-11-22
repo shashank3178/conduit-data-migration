@@ -151,6 +151,26 @@ def test_validation_returns_actionable_counts_and_closes_read_transactions():
     assert destination.commits == 1
 
 
+def test_validation_detects_destination_rows_for_empty_source_table():
+    table = SimpleNamespace(
+        source_schema="public", source_table="source",
+        destination_schema="public", destination_table="destination",
+    )
+    source = FakeReadConnection([])
+    destination = FakeReadConnection([(1, "destination-only")])
+
+    result = _validate_table_detailed(
+        source, destination, table, ["id", "value"], ["id", "value"],
+        ["id"], ["id"], 10,
+    )
+
+    assert result["source_rows"] == 0
+    assert result["destination_rows"] == 1
+    assert result["extra_in_destination"] == 1
+    assert result["mismatch_rows"] == 1
+    assert result["samples"][0]["reason"] == "EXTRA_IN_DESTINATION"
+
+
 def test_validation_does_not_treat_boolean_true_as_integer_one():
     table = SimpleNamespace(
         source_schema="public", source_table="source",
