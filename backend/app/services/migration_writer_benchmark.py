@@ -48,6 +48,7 @@ def benchmark_writer(
     source = psycopg.connect(source_dsn)
     destination = psycopg.connect(destination_dsn)
     benchmark_schema = f"conduit_bench_{uuid.uuid4().hex[:12]}"
+    previous_engine = os.environ.get("CONDUIT_WRITE_ENGINE")
     try:
         source_columns = _columns(source, source_schema, source_table)
         destination_columns = _columns(destination, destination_schema, destination_table)
@@ -136,7 +137,10 @@ def benchmark_writer(
             "count_check_passed": destination_rows == rows_fetched,
         }
     finally:
-        os.environ.pop("CONDUIT_WRITE_ENGINE", None)
+        if previous_engine is None:
+            os.environ.pop("CONDUIT_WRITE_ENGINE", None)
+        else:
+            os.environ["CONDUIT_WRITE_ENGINE"] = previous_engine
         try:
             with destination.transaction():
                 destination.execute(
