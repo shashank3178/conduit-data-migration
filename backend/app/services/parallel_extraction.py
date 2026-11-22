@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import threading
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable
 
 import psycopg
 from psycopg import sql
@@ -47,7 +47,7 @@ def extract_integer_key_ranges(
 
     lower, upper = bounds
     if isinstance(lower, bool) or not isinstance(lower, int) or not isinstance(upper, int):
-        raise ValueError(
+        raise TypeError(
             "Parallel range extraction currently requires a single integer primary key; "
             "use the sequential keyset extractor for UUID, composite, or non-integer keys."
         )

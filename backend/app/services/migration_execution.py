@@ -9,8 +9,6 @@ from decimal import Decimal
 from uuid import UUID as PyUUID
 from zoneinfo import ZoneInfo
 
-logger = logging.getLogger(__name__)
-
 import psycopg
 from psycopg import sql
 from psycopg.types.json import Json, Jsonb
@@ -36,6 +34,8 @@ from app.services.migration_metrics_service import (
     record_database_snapshot,
     record_table_storage_snapshot,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _event(db, run, event_type, run_table=None, **details):
