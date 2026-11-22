@@ -138,6 +138,7 @@ def test_validation_returns_actionable_counts_and_closes_read_transactions():
     assert result["missing_in_destination"] == 1
     assert result["extra_in_destination"] == 1
     assert result["changed_rows"] == 1
+    assert result["matched_rows"] == 2
     assert result["mismatch_rows"] == 3
     assert {sample["reason"] for sample in result["samples"]} == {
         "MISSING_IN_DESTINATION", "EXTRA_IN_DESTINATION", "COLUMN_VALUE_MISMATCH",
