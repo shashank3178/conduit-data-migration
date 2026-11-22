@@ -18,7 +18,7 @@ type Run = {
 export default function ExecutionPanel({ projectId, planId, planStatus }: { projectId: string; planId: string; planStatus: string }) {
   const [batchSize, setBatchSize] = useState(1000);
   const [writeStrategy, setWriteStrategy] = useState<"INSERT_ONLY" | "UPSERT">("INSERT_ONLY");
-  const [writeEngine, setWriteEngine] = useState<"VALUES" | "COPY">("VALUES");
+  const [writeEngine] = useState<"VALUES" | "COPY">("COPY");
   const [runs, setRuns] = useState<Run[]>([]);
   const [selected, setSelected] = useState<Run | null>(null);
   const [tableProgress, setTableProgress] = useState<any[]>([]);
@@ -153,7 +153,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
   const percent = estimatedSourceBytes > 0 ? Math.min(100, Math.round(observedPayloadBytes / estimatedSourceBytes * 100)) : 0;
   const runMetric = runMetrics?.run;
   const formatRate = (value: number | null | undefined) => value == null ? "—" : `${formatBytes(value)}/s`;
-  const plannedCheckpoints = planMetrics?.tables?.filter((item:any) => item.selected).reduce((sum:number,item:any) => sum + Math.ceil((item.estimated_rows ?? 0) / (selected?.batch_size ?? batchSize)), 0) ?? 0;
+  const plannedCheckpoints = planMetrics?.tables?.filter((item:any) => item.selected).reduce((sum:number,item:any) => sum + Math.ceil((item.source_physical_bytes ?? 0) / (8 * 1024 * 1024)), 0) ?? 0;
   const etaSeconds = runMetric?.logical_bytes_per_second > 0 && planMetrics?.tables?.length
     ? Math.max(0, (planMetrics.tables.filter((item:any) => item.selected).reduce((sum:number,item:any) => sum + (item.source_physical_bytes ?? 0), 0) - (runMetric.logical_bytes ?? 0)) / runMetric.logical_bytes_per_second)
     : null;
@@ -173,17 +173,17 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div><p className="text-xs text-slate-500">Selected tables</p><p className="font-semibold">{planMetrics.summary?.selected_tables ?? 0} / {planMetrics.summary?.candidate_tables ?? 0}</p></div>
           <div><p className="text-xs text-slate-500">Selected source footprint</p><p className="font-semibold">{formatBytes((planMetrics.tables ?? []).filter((item:any) => item.selected).reduce((sum:number,item:any) => sum + (item.source_physical_bytes ?? 0), 0))}</p></div>
-          <div><p className="text-xs text-slate-500">Planned checkpoints</p><p className="font-semibold">{(planMetrics.tables ?? []).filter((item:any) => item.selected).reduce((sum:number,item:any) => sum + Math.ceil((item.estimated_rows ?? 0) / batchSize), 0).toLocaleString()}</p></div>
+          <div><p className="text-xs text-slate-500">Planned checkpoints</p><p className="font-semibold">{(planMetrics.tables ?? []).filter((item:any) => item.selected).reduce((sum:number,item:any) => sum + Math.ceil((item.source_physical_bytes ?? 0) / (8 * 1024 * 1024)), 0).toLocaleString()}</p></div>
           <div><p className="text-xs text-slate-500">Estimated source rows</p><p className="font-semibold">{(planMetrics.summary?.estimated_source_rows ?? 0).toLocaleString()}</p></div>
           <div><p className="text-xs text-slate-500">Measured</p><p className="font-semibold text-xs">{planMetrics.measured_at ? new Date(planMetrics.measured_at).toLocaleString() : "—"}</p></div>
           <div><p className="text-xs text-slate-500">Size semantics</p><p className="font-semibold text-xs">Includes indexes / TOAST</p></div>
         </div>
-        <div className="mt-3 max-h-64 overflow-auto rounded-lg border bg-white"><table className="w-full min-w-[760px] text-left text-xs"><thead className="sticky top-0 border-b bg-slate-100 text-slate-600"><tr><th className="p-2">Table</th><th className="p-2">Selected</th><th className="p-2">Est. rows</th><th className="p-2">Columns / mapped</th><th className="p-2">PK columns</th><th className="p-2">Source size</th><th className="p-2">Target size</th><th className="p-2">Planned checkpoints</th></tr></thead><tbody>{(planMetrics.tables ?? []).map((item:any) => <tr key={item.id} className="border-b last:border-0"><td className="p-2 font-medium">{item.source}</td><td className="p-2">{item.selected ? "Yes" : "No"}</td><td className="p-2">{item.estimated_rows?.toLocaleString() ?? "—"}</td><td className="p-2">{item.column_count} / {item.mapped_columns}</td><td className="p-2">{item.primary_key_columns?.join(", ") || "Missing"}</td><td className="p-2">{formatBytes(item.source_physical_bytes)}</td><td className="p-2">{formatBytes(item.destination_physical_bytes)}</td><td className="p-2">{item.selected ? Math.ceil((item.estimated_rows ?? 0) / batchSize).toLocaleString() : "—"}</td></tr>)}</tbody></table></div>
+        <div className="mt-3 max-h-64 overflow-auto rounded-lg border bg-white"><table className="w-full min-w-[760px] text-left text-xs"><thead className="sticky top-0 border-b bg-slate-100 text-slate-600"><tr><th className="p-2">Table</th><th className="p-2">Selected</th><th className="p-2">Est. rows (diagnostic)</th><th className="p-2">Columns / mapped</th><th className="p-2">PK columns</th><th className="p-2">Source size</th><th className="p-2">Target size</th><th className="p-2">Planned checkpoints</th></tr></thead><tbody>{(planMetrics.tables ?? []).map((item:any) => <tr key={item.id} className="border-b last:border-0"><td className="p-2 font-medium">{item.source}</td><td className="p-2">{item.selected ? "Yes" : "No"}</td><td className="p-2">{item.estimated_rows?.toLocaleString() ?? "—"}</td><td className="p-2">{item.column_count} / {item.mapped_columns}</td><td className="p-2">{item.primary_key_columns?.join(", ") || "Missing"}</td><td className="p-2">{formatBytes(item.source_physical_bytes)}</td><td className="p-2">{formatBytes(item.destination_physical_bytes)}</td><td className="p-2">{item.selected ? Math.ceil((item.estimated_rows ?? 0) / batchSize).toLocaleString() : "—"}</td></tr>)}</tbody></table></div>
       </>}
       {!planMetrics && <p className="mt-3 text-xs text-slate-500">Loading database and table measurements…</p>}
     </div>
     <div className="flex flex-wrap items-end gap-3">
-      <label className="text-sm">Batch size <select value={batchSize} onChange={(e) => setBatchSize(Number(e.target.value))} className="ml-2 rounded border p-2"><option value={500}>500</option><option value={1000}>1,000</option><option value={2500}>2,500</option><option value={5000}>5,000</option><option value={10000}>10,000</option></select></label>
+      <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm"><strong>Primary engine: PostgreSQL COPY</strong><span className="ml-2 text-xs text-slate-600">8 MiB byte-bounded chunks · server-side extraction</span></div>
       <div className="w-full">
         <p className="mb-2 text-xs font-semibold text-slate-600">Choose write engine</p>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -193,7 +193,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
           </button>
           <button type="button" onClick={() => setWriteEngine("COPY")} className={`rounded-xl border p-4 text-left transition ${writeEngine === "COPY" ? "border-indigo-300 bg-indigo-50/70 ring-2 ring-indigo-100" : "border-slate-200 bg-white hover:border-slate-300"}`}>
             <span className="text-sm font-semibold text-slate-800">COPY (staging + merge)</span>
-            <span className="mt-1 block text-[11px] leading-5 text-slate-500">Streams rows through PostgreSQL COPY, then merges in the same batch transaction. Test against your destination first.</span>
+            <span className="mt-1 block text-[11px] leading-5 text-slate-500">Streams byte-bounded chunks through PostgreSQL COPY into staging, then merges atomically.</span>
           </button>
         </div>
       </div>
@@ -232,7 +232,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
         <div><span className="text-slate-500">Skipped</span><p className="font-semibold">{selected.skipped_rows.toLocaleString()}</p></div>
         <div><span className="text-slate-500">Failed</span><p className="font-semibold">{selected.failed_rows.toLocaleString()}</p></div>
         <div><span className="text-slate-500">Tables done</span><p className="font-semibold">{selected.completed_tables}/{selected.total_tables}</p></div>
-        <div><span className="text-slate-500">Total rows</span><p className="font-semibold">{selected.total_rows.toLocaleString()}</p></div>
+        <div><span className="text-slate-500">Rows (diagnostic)</span><p className="font-semibold">{selected.total_rows.toLocaleString()}</p></div>
         <div><span className="text-slate-500">Validation</span><p className="font-semibold">{selected.validation_status} ({selected.mismatch_rows} mismatches)</p></div>
         <div><span className="text-slate-500">Strategy</span><p className="font-semibold">{selected.write_strategy}</p></div>
         <div><span className="text-slate-500">Engine</span><p className="font-semibold">{selected.write_engine}</p></div>
@@ -243,10 +243,10 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
           <Metric label="Payload observed" value={formatBytes(runMetric.logical_bytes)}/>
           <Metric label="Source fetch time" value={`${(runMetric.source_fetch_duration_ms/1000).toFixed(1)} s`}/>
           <Metric label="Destination write time" value={`${(runMetric.destination_write_duration_ms/1000).toFixed(1)} s`}/>
-          <Metric label="Checkpoints crossed / planned" value={`${(runMetric.batches_committed ?? 0).toLocaleString()} / ${plannedCheckpoints.toLocaleString()}`}/>
+          <Metric label="Byte checkpoints crossed / estimated" value={`${(runMetric.batches_committed ?? 0).toLocaleString()} / ${plannedCheckpoints.toLocaleString()}`}/>
           <Metric label="Source round trip" value={runMetric.source_network_rtt_ms == null ? "Unavailable" : `${runMetric.source_network_rtt_ms} ms`}/>
           <Metric label="Destination round trip" value={runMetric.destination_network_rtt_ms == null ? "Unavailable" : `${runMetric.destination_network_rtt_ms} ms`}/>
-          <Metric label="Observed row rate" value={`${Math.round(runMetric.rows_per_second ?? 0).toLocaleString()} rows/s`}/>
+          <Metric label="Rows/s (diagnostic)" value={`${Math.round(runMetric.rows_per_second ?? 0).toLocaleString()} rows/s`}/>
           <Metric label="Rough remaining time" value={etaSeconds == null ? "Calculating…" : etaSeconds < 60 ? `${Math.ceil(etaSeconds)} sec` : `${Math.ceil(etaSeconds/60)} min`}/>
         </div>
         <p className="mt-2 text-[10px] text-slate-500">ETA is indicative only: it compares serialized payload throughput with PostgreSQL physical table footprint, which can differ due to indexes, TOAST, compression, and type encoding.</p>
@@ -255,7 +255,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
       {selected.status === "queued" && <p className="rounded bg-amber-50 p-3 text-xs text-amber-800">This run is queued and has not yet been claimed by a worker. Confirm that <code>python -m app.worker</code> is running against the same metadata database. The page refreshes status automatically.</p>}
       {selected.status === "running" && <p className="text-xs text-slate-500">Worker: {selected.worker_id ?? "claiming"} · Last heartbeat: {selected.heartbeat_at ? new Date(selected.heartbeat_at).toLocaleString() : "not reported"}</p>}
       {selected.error_message && <p className="rounded bg-red-50 p-3 text-sm text-red-700">{selected.error_message}</p>}
-      <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="border-b text-slate-500"><tr><th className="p-2">Source</th><th className="p-2">Destination</th><th className="p-2">Status</th><th className="p-2">Payload</th><th className="p-2">Checkpoints crossed / planned</th><th className="p-2">Inserted</th><th className="p-2">Updated</th><th className="p-2">Skipped</th><th className="p-2">Failed</th><th className="p-2">Validation</th></tr></thead><tbody>{tableProgress.map((t:any)=><tr key={t.id} className="border-b"><td className="p-2">{t.source_schema}.{t.source_table}</td><td className="p-2">{t.destination_schema}.{t.destination_table}</td><td className="p-2">{t.status}</td><td className="p-2">{formatBytes(runMetrics?.tables?.find((metric:any) => metric.run_table_id === t.id)?.logical_bytes)}</td><td className="p-2">{runMetrics?.tables?.find((metric:any) => metric.run_table_id === t.id)?.batches_committed ?? 0} / {Math.ceil((t.total_rows ?? 0) / (selected?.batch_size ?? batchSize))}</td><td className="p-2">{t.inserted_rows.toLocaleString()}</td><td className="p-2">{t.updated_rows.toLocaleString()}</td><td className="p-2">{t.skipped_rows.toLocaleString()}</td><td className="p-2">{t.failed_rows.toLocaleString()}</td><td className="p-2">{t.validation_status}: {t.mismatch_rows}</td></tr>)}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="border-b text-slate-500"><tr><th className="p-2">Source</th><th className="p-2">Destination</th><th className="p-2">Status</th><th className="p-2">Payload</th><th className="p-2">Checkpoints crossed / planned</th><th className="p-2">Inserted</th><th className="p-2">Updated</th><th className="p-2">Skipped</th><th className="p-2">Failed</th><th className="p-2">Validation</th></tr></thead><tbody>{tableProgress.map((t:any)=><tr key={t.id} className="border-b"><td className="p-2">{t.source_schema}.{t.source_table}</td><td className="p-2">{t.destination_schema}.{t.destination_table}</td><td className="p-2">{t.status}</td><td className="p-2">{formatBytes(runMetrics?.tables?.find((metric:any) => metric.run_table_id === t.id)?.logical_bytes)}</td><td className="p-2">{runMetrics?.tables?.find((metric:any) => metric.run_table_id === t.id)?.batches_committed ?? 0} / {"size-based"}</td><td className="p-2">{t.inserted_rows.toLocaleString()}</td><td className="p-2">{t.updated_rows.toLocaleString()}</td><td className="p-2">{t.skipped_rows.toLocaleString()}</td><td className="p-2">{t.failed_rows.toLocaleString()}</td><td className="p-2">{t.validation_status}: {t.mismatch_rows}</td></tr>)}</tbody></table></div>
       {events.length > 0 && <div className="space-y-2"><h3 className="text-sm font-semibold">Execution activity</h3><ol className="max-h-40 space-y-1 overflow-auto rounded border p-3 text-xs">{events.slice(-100).reverse().map((item:any)=><li key={item.id} className="flex justify-between gap-3 border-b py-1 last:border-0"><span>{item.event_type.replaceAll('_',' ')} {item.details?.duration_ms ? '· ' + item.details.duration_ms + ' ms' : ''}</span><time className="shrink-0 text-slate-500">{new Date(item.created_at).toLocaleString()}</time></li>)}</ol></div>}
       {rowErrors.length > 0 && <div className="space-y-2"><h3 className="text-sm font-semibold">Row-level errors (first {rowErrors.length})</h3><div className="max-h-56 overflow-auto rounded border"><table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-50"><tr><th className="p-2">Source key</th><th className="p-2">Error</th><th className="p-2">Attempts</th></tr></thead><tbody>{rowErrors.map((item:any)=><tr key={item.id} className="border-t"><td className="p-2">{JSON.stringify(item.source_key)}</td><td className="p-2">{item.error_message}</td><td className="p-2">{item.attempts}</td></tr>)}</tbody></table></div></div>}
     </div>}
