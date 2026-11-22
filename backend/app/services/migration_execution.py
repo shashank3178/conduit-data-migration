@@ -405,65 +405,41 @@ def _write_with_isolation(
     keys,
     strategy,
 ):
-    try:
-        with destination.transaction():
-            result = _write_batch(
-                destination,
-                table,
-                destination_columns,
-                conflict_columns,
-                rows,
-                strategy,
-                destination_column_types,
+    def write_or_split(batch_rows, batch_keys):
+        try:
+            with destination.transaction():
+                return (*_write_batch(
+                    destination,
+                    table,
+                    destination_columns,
+                    conflict_columns,
+                    batch_rows,
+                    strategy,
+                    destination_column_types,
+                ), 0, [])
+        except psycopg.OperationalError:
+            raise
+        except psycopg.Error as exc:
+            if not _is_row_level_write_error(exc):
+                raise
+            if len(batch_rows) == 1:
+                key = batch_keys[0]
+                _record_row_error(
+                    db, run, progress, key, key_columns, exc,
+                )
+                return 0, 0, 0, 1, [key]
+
+            # Split only the rejected portion. A single bad row in a large
+            # batch now costs O(log N) failed probes rather than N individual
+            # INSERT/savepoint round trips over a remote database connection.
+            midpoint = len(batch_rows) // 2
+            left = write_or_split(batch_rows[:midpoint], batch_keys[:midpoint])
+            right = write_or_split(batch_rows[midpoint:], batch_keys[midpoint:])
+            return tuple(left[index] + right[index] for index in range(4)) + (
+                left[4] + right[4],
             )
 
-        return (*result, 0, [])
-
-    except psycopg.OperationalError:
-        raise
-
-    except psycopg.Error as exc:
-        if not _is_row_level_write_error(exc):
-            raise
-
-        inserted = updated = skipped = failed = 0
-        failed_keys = []
-
-        with destination.transaction():
-            for row, key in zip(rows, keys, strict=True):
-                try:
-                    with destination.transaction():
-                        outcome = _write_batch(
-                            destination,
-                            table,
-                            destination_columns,
-                            conflict_columns,
-                            [row],
-                            strategy,
-                            destination_column_types,
-                        )
-
-                    inserted += outcome[0]
-                    updated += outcome[1]
-                    skipped += outcome[2]
-
-                except psycopg.OperationalError:
-                    raise
-
-                except psycopg.Error as exc:
-                    failed += 1
-                    failed_keys.append(key)
-
-                    _record_row_error(
-                        db,
-                        run,
-                        progress,
-                        key,
-                        key_columns,
-                        exc,
-                    )
-
-        return inserted, updated, skipped, failed, failed_keys
+    return write_or_split(rows, keys)
     
 
 def _cursor_rows(cursor, size):
@@ -846,14 +822,16 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     run.migrated_rows += inserted + updated + skipped
                     run.heartbeat_at = datetime.now(UTC)
                     duration_ms = round((time.monotonic() - batch_started) * 1000, 2)
+                    batch_logical_bytes = logical_payload_bytes(batch)
                     record_committed_batch(
                         db, run, progress, batch, inserted, updated, skipped, failed,
                         checkpoint_start, progress.last_key, duration_ms,
                         source_fetch_duration_ms=fetch_duration_ms,
                         destination_write_duration_ms=destination_write_duration_ms,
                         network_rtt_ms=network_rtt,
+                        logical_payload_size=batch_logical_bytes,
                     )
-                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, logical_bytes=logical_payload_bytes(batch), duration_ms=duration_ms, source_fetch_duration_ms=fetch_duration_ms, destination_write_duration_ms=destination_write_duration_ms, source_network_rtt_ms=network_rtt["source"], destination_network_rtt_ms=network_rtt["destination"])
+                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, logical_bytes=batch_logical_bytes, duration_ms=duration_ms, source_fetch_duration_ms=fetch_duration_ms, destination_write_duration_ms=destination_write_duration_ms, source_network_rtt_ms=network_rtt["source"], destination_network_rtt_ms=network_rtt["destination"])
                     db.commit()
                 if _cancel_requested(run_id):
                     progress.status = "cancelled"
@@ -888,6 +866,28 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 mismatch = validation_details["mismatch_rows"]
                 progress.mismatch_rows = mismatch
                 progress.validation_status = "passed" if mismatch == 0 else "failed"
+                if mismatch:
+                    samples = validation_details["samples"][:3]
+                    sample_summary = "; ".join(
+                        f"{sample['reason']} key={sample.get('primary_key')} "
+                        f"columns={sample.get('different_columns', [])}"
+                        for sample in samples
+                    )
+                    progress.error_message = (
+                        f"Validation failed: {mismatch} mismatched rows; "
+                        f"missing in destination={validation_details['missing_in_destination']}, "
+                        f"extra in destination={validation_details['extra_in_destination']}, "
+                        f"changed rows={validation_details['changed_rows']}. "
+                        f"Sample mismatches: {sample_summary or 'No sample available.'}"
+                    )[:1200]
+                elif progress.failed_rows:
+                    progress.error_message = (
+                        f"Validation passed for the compared rows, but "
+                        f"{progress.failed_rows} row(s) failed during destination writes. "
+                        "Inspect the row-level error records for source keys and PostgreSQL causes."
+                    )[:1200]
+                else:
+                    progress.error_message = None
                 run.mismatch_rows += mismatch
                 record_table_storage_snapshot(db, run, progress, source, destination)
                 _event(
