@@ -295,6 +295,7 @@ def _validate_table_detailed(
         "missing_in_destination": 0,
         "extra_in_destination": 0,
         "changed_rows": 0,
+        "matched_rows": 0,
         "mismatch_rows": 0,
         "samples": [],
         "sample_limit": sample_limit,
@@ -339,8 +340,6 @@ def _validate_table_detailed(
                 source_row = next(source_rows, None)
                 continue
 
-            details["source_rows"] += 1
-            details["destination_rows"] += 1
             source_key = tuple(source_row[index] for index in source_key_indexes)
             destination_key = tuple(destination_row[index] for index in destination_key_indexes)
             try:
@@ -355,14 +354,19 @@ def _validate_table_detailed(
                 ) from exc
 
             if source_before_destination:
+                details["source_rows"] += 1
                 details["missing_in_destination"] += 1
                 add_sample("MISSING_IN_DESTINATION", source_key)
                 source_row = next(source_rows, None)
             elif destination_before_source:
+                details["destination_rows"] += 1
                 details["extra_in_destination"] += 1
                 add_sample("EXTRA_IN_DESTINATION", destination_key)
                 destination_row = next(destination_rows, None)
             else:
+                details["source_rows"] += 1
+                details["destination_rows"] += 1
+                details["matched_rows"] += 1
                 different_columns = []
                 type_differences = {}
                 for index, (source_value, destination_value) in enumerate(
@@ -397,12 +401,6 @@ def _validate_table_detailed(
         details["missing_in_destination"]
         + details["extra_in_destination"]
         + details["changed_rows"]
-    )
-    details["matched_rows"] = (
-        min(details["source_rows"], details["destination_rows"])
-        - details["missing_in_destination"]
-        - details["extra_in_destination"]
-        - details["changed_rows"]
     )
     return details
 
