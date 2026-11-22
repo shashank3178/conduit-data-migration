@@ -82,11 +82,38 @@ def check_native_compatibility(source: PgEndpoint, destination: PgEndpoint) -> d
     }
 
 
+def _assert_destination_empty(endpoint: PgEndpoint) -> None:
+    """Native restore is only safe into a fresh destination database."""
+    with psycopg.connect(
+        host=endpoint.host, port=endpoint.port, dbname=endpoint.database,
+        user=endpoint.username, password=endpoint.password,
+        sslmode=endpoint.sslmode, connect_timeout=10,
+    ) as connection:
+        row = connection.execute(
+            """
+            SELECT count(*)
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+              AND n.nspname NOT LIKE 'pg_toast%'
+              AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+            """
+        ).fetchone()
+    if row and row[0]:
+        raise RuntimeError(
+            "Native pg_restore requires an empty destination database. "
+            f"Found {row[0]} existing tables, views, materialized views, sequences, "
+            "or foreign tables; use the COPY engine for an existing mapped destination."
+        )
+
 def _terminate_process(process: subprocess.Popen) -> None:
     if process.poll() is not None:
         return
     if os.name == "nt":
-        process.terminate()
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            capture_output=True, check=False,
+        )
     else:
         try:
             os.killpg(process.pid, signal.SIGTERM)
@@ -159,6 +186,7 @@ def run_native_migration(
     if schemas and tables:
         raise ValueError("Choose schema filtering or table filtering, not both.")
     compatibility = check_native_compatibility(source, destination)
+    _assert_destination_empty(destination)
     environment = os.environ.copy()
     environment.update({
         "PGPASSWORD": source.password,
