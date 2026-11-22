@@ -38,6 +38,9 @@ _RUN_COUNTER_FIELDS = (
     "processing_duration_ms",
     "rows_per_second",
     "logical_bytes_per_second",
+    "source_fetch_duration_ms",
+    "destination_write_duration_ms",
+    "metadata_commit_duration_ms",
 )
 _TABLE_COUNTER_FIELDS = (
     "rows_fetched",
@@ -67,6 +70,9 @@ def ensure_run_metric(db, run):
             processing_duration_ms=0,
             rows_per_second=0,
             logical_bytes_per_second=0,
+            source_fetch_duration_ms=0,
+            destination_write_duration_ms=0,
+            metadata_commit_duration_ms=0,
         )
         db.add(metric)
         db.flush()
@@ -77,6 +83,8 @@ def ensure_run_metric(db, run):
 def record_committed_batch(
     db, run, progress, rows, inserted, updated, skipped, failed,
     checkpoint_start, checkpoint_end, duration_ms,
+    source_fetch_duration_ms=0, destination_write_duration_ms=0,
+    network_rtt_ms=None,
 ):
     """Persist one committed batch in the same metadata transaction as its checkpoint."""
     key = batch_identity(progress.id, checkpoint_start, checkpoint_end)
@@ -101,6 +109,9 @@ def record_committed_batch(
         rows_failed=failed,
         logical_bytes=logical_bytes,
         duration_ms=duration_ms,
+        source_fetch_duration_ms=source_fetch_duration_ms,
+        destination_write_duration_ms=destination_write_duration_ms,
+        network_rtt_ms=network_rtt_ms,
         checkpoint_start=checkpoint_start,
         checkpoint_end=checkpoint_end,
     ))
@@ -112,6 +123,8 @@ def record_committed_batch(
     run_metric.batches_committed += 1
     run_metric.logical_bytes += logical_bytes
     run_metric.processing_duration_ms += duration_ms
+    run_metric.source_fetch_duration_ms += source_fetch_duration_ms
+    run_metric.destination_write_duration_ms += destination_write_duration_ms
     seconds = run_metric.processing_duration_ms / 1000
     run_metric.rows_per_second = run_metric.rows_committed / seconds if seconds else 0
     run_metric.logical_bytes_per_second = run_metric.logical_bytes / seconds if seconds else 0
