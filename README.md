@@ -198,3 +198,13 @@ Automated backend tests cover discovery serialization, DDL generation, checkpoin
 - [Migration execution](backend/MIGRATION_EXECUTION.md)
 
 Documentation uses product step/domain names rather than historical phase numbers.
+
+
+### Migration throughput and size metrics
+
+- Per-table and database footprint use PostgreSQL `pg_total_relation_size`; table size includes indexes and TOAST storage and is a storage estimate, not exact transfer bytes.
+- Per-batch `logical_bytes` is the UTF-8 JSON-serialized size of the fetched row payload. It is a repeatable application-level estimate, not TCP/TLS wire-byte accounting.
+- Source fetch duration and destination write duration are measured separately. Destination write duration includes the destination transaction and commit.
+- Database round-trip latency is measured with a `SELECT 1` probe after connecting. It is a baseline RTT measurement, not continuous packet-level latency.
+- The UI therefore labels byte progress and ETA as approximate. For exact wire throughput, instrument the worker's client socket/driver layer or use database/network telemetry from the hosting provider.
+- `CONDUIT_WORKER_CONCURRENCY` controls concurrent migration jobs per worker process (default 1, maximum 32). Increase gradually; concurrency multiplies source, destination, and metadata connection demand. Multiple worker processes remain supported through the durable `SKIP LOCKED` queue.
