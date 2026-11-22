@@ -158,12 +158,6 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
                         ),
                         {"schema": schema_name, "table": table_name},
                     ).scalar_one_or_none()
-                    size_bytes = conn.execute(
-                        text("""
-                            SELECT pg_total_relation_size(to_regclass(format('%I.%I', :schema, :table)))
-                        """),
-                        {"schema": schema_name, "table": table_name},
-                    ).scalar_one_or_none() if kind == "table" else None
 
                     db.add(
                         DiscoveredTable(
@@ -171,7 +165,6 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
                             name=table_name,
                             table_type=kind,
                             estimated_rows=int(estimate) if estimate is not None else None,
-                            estimated_size_bytes=int(size_bytes) if size_bytes is not None else None,
                             columns=columns,
                             primary_key=primary_key,
                             foreign_keys=foreign_keys,
@@ -251,7 +244,6 @@ def list_tables(
             "name": table.name,
             "table_type": table.table_type,
             "estimated_rows": table.estimated_rows,
-            "estimated_size_bytes": table.estimated_size_bytes,
         }
         for table, schema in query.order_by(DiscoveredSchema.name, DiscoveredTable.name).all()
     ]
@@ -285,7 +277,6 @@ def get_table(
         "name": table.name,
         "table_type": table.table_type,
         "estimated_rows": table.estimated_rows,
-        "estimated_size_bytes": table.estimated_size_bytes,
         "columns": table.columns,
         "primary_key": table.primary_key,
         "foreign_keys": table.foreign_keys,

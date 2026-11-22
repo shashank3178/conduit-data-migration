@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -57,7 +58,8 @@ class MigrationPlanTable(Base):
     destination_table: Mapped[str] = mapped_column(String(128), nullable=False)
     selected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     destination_exists: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    estimated_rows: Mapped[int | None] = mapped_column(Integer)
+    estimated_rows: Mapped[int | None] = mapped_column(Integer)  # diagnostic only
+    source_size_bytes: Mapped[int | None] = mapped_column(BigInteger)
     source_columns: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     destination_columns: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     source_primary_key: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
