@@ -277,10 +277,13 @@ def test_timestamp_validation_uses_destination_timezone_for_naive_to_timestamptz
 
 
 def test_timestamp_validation_compares_instants_for_timestamptz():
-    from datetime import timedelta
+    from datetime import timedelta, timezone
 
     source_value = datetime(2026, 11, 22, 12, 0, tzinfo=UTC)
-    destination_value = datetime(2026, 11, 22, 17, 30, tzinfo=UTC + timedelta(hours=5, minutes=30))
+    destination_value = datetime(
+        2026, 11, 22, 17, 30,
+        tzinfo=timezone(timedelta(hours=5, minutes=30)),
+    )
     assert execution._timestamp_values_equal(
         source_value, destination_value,
         "timestamp with time zone", "timestamp with time zone", "UTC",
