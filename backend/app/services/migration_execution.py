@@ -1,6 +1,7 @@
 """Durable keyset-paginated PostgreSQL migration execution."""
 import logging
 import math
+import os
 import time
 import uuid
 from datetime import UTC, date, datetime
@@ -26,6 +27,7 @@ from app.models.migration_run import (
     MigrationRunTable,
 )
 from app.services.connection_service import decrypt_password
+from app.services.postgres_copy_engine import copy_stage_and_merge
 from app.services.migration_metrics_service import (
     ensure_run_metric,
     finish_run_metric,
@@ -248,6 +250,19 @@ def _write_batch(
     """
     if not rows:
         return 0, 0, 0
+
+    # Roll out COPY independently from the legacy VALUES writer. The enclosing
+    # _write_with_isolation transaction remains the durability boundary.
+    if os.getenv("CONDUIT_WRITE_ENGINE", "values").strip().lower() == "copy":
+        return copy_stage_and_merge(
+            destination,
+            table,
+            destination_columns,
+            conflict_columns,
+            rows,
+            strategy,
+            destination_column_types,
+        )
 
     width = len(destination_columns)
 
