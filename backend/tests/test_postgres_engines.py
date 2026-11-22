@@ -26,3 +26,37 @@ def test_copy_rejects_unmapped_python_dictionary():
 def test_copy_rejects_row_width_mismatch():
     with pytest.raises(ValueError, match="values for"):
         _adapt_row([1, 2], ["id"], {"id": "integer"})
+
+
+
+def test_write_batch_dispatches_copy_from_persisted_engine(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import migration_execution
+
+    expected = (2, 1, 0)
+    calls = []
+
+    def fake_copy(*args):
+        calls.append(args)
+        return expected
+
+    monkeypatch.setattr(migration_execution, "copy_stage_and_merge", fake_copy)
+    table = SimpleNamespace(
+        destination_schema="public",
+        destination_table="target",
+    )
+    result = migration_execution._write_batch(
+        destination=object(),
+        table=table,
+        destination_columns=["id"],
+        conflict_columns=["id"],
+        rows=[(1,), (2,), (3,)],
+        strategy="UPSERT",
+        destination_column_types={"id": "integer"},
+        write_engine="COPY",
+    )
+
+    assert result == expected
+    assert len(calls) == 1
+    assert calls[0][1] is table
