@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime
 from datetime import time as datetime_time
 from decimal import Decimal
 from uuid import UUID as PyUUID
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
@@ -482,6 +483,49 @@ def _validation_key_payload(key, key_columns):
     }
 
 
+def _validation_schema_metadata(connection, table, columns):
+    """Read mapped PostgreSQL types and the destination session timezone."""
+    with connection.transaction():
+        rows = connection.execute(
+            """
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+              AND column_name = ANY(%s)
+            """,
+            (table.source_schema if connection._conduit_validation_role == "source"
+             else table.destination_schema,
+             table.source_table if connection._conduit_validation_role == "source"
+             else table.destination_table, columns),
+        ).fetchall()
+        timezone_name = connection.execute(
+            "SELECT current_setting('TimeZone')"
+        ).fetchone()[0]
+    return {name: kind.lower() for name, kind in rows}, timezone_name
+
+
+def _timestamp_values_equal(source_value, destination_value,
+                            source_type, destination_type, destination_timezone):
+    """Compare timestamps using PostgreSQL's destination-session cast semantics."""
+    if not isinstance(source_value, datetime) or not isinstance(destination_value, datetime):
+        return _validation_values_equal(source_value, destination_value)
+    source_tz = "with time zone" in source_type
+    destination_tz = "with time zone" in destination_type
+    if source_tz and destination_tz:
+        return source_value.astimezone(UTC) == destination_value.astimezone(UTC)
+    if not source_tz and not destination_tz:
+        return source_value == destination_value
+    zone = ZoneInfo(destination_timezone)
+    if not source_tz and destination_tz:
+        # PostgreSQL interprets a naive timestamp inserted into timestamptz
+        # using the destination connection's TimeZone setting.
+        source_value = source_value.replace(tzinfo=zone)
+        return source_value.astimezone(UTC) == destination_value.astimezone(UTC)
+    # PostgreSQL converts timestamptz to timestamp without time zone in the
+    # destination session timezone, dropping the timezone after conversion.
+    return source_value.astimezone(zone).replace(tzinfo=None) == destination_value
+
+
 def _validate_table_detailed(
     source, destination, table, source_columns, destination_columns,
     source_pk, destination_pk, batch_size, sample_limit=20,
@@ -499,6 +543,23 @@ def _validate_table_detailed(
     )
     source_key_indexes = [source_columns.index(name) for name in source_pk]
     destination_key_indexes = [destination_columns.index(name) for name in destination_pk]
+    # Use connection metadata to distinguish timestamp-with/without-time-zone.
+    # This avoids treating equivalent PostgreSQL casts as data corruption while
+    # preserving strict comparisons for all other mapped values.
+    source_types = {}
+    destination_types = {}
+    destination_timezone = "UTC"
+    try:
+        source._conduit_validation_role = "source"
+        source_types, _ = _validation_schema_metadata(source, table, source_columns)
+        destination._conduit_validation_role = "destination"
+        destination_types, destination_timezone = _validation_schema_metadata(
+            destination, table, destination_columns
+        )
+    except (AttributeError, TypeError):
+        # Lightweight test doubles may expose cursors only. Real psycopg
+        # connections always provide transaction() and execute().
+        source_types, destination_types = {}, {}
     details = {
         "source_rows": 0,
         "destination_rows": 0,
@@ -509,7 +570,9 @@ def _validate_table_detailed(
         "mismatch_rows": 0,
         "samples": [],
         "sample_limit": sample_limit,
-        "comparison": "primary-key ordered streaming comparison",
+        "comparison": "primary-key ordered streaming comparison with PostgreSQL type-aware timestamp semantics",
+        "timestamp_timezone": destination_timezone,
+        "timestamp_columns_normalized": [],
     }
 
     def add_sample(reason, key, columns=None, type_differences=None):
@@ -582,13 +645,32 @@ def _validate_table_detailed(
                 for index, (source_value, destination_value) in enumerate(
                     zip(source_row, destination_row, strict=True)
                 ):
-                    if not _validation_values_equal(source_value, destination_value):
-                        column_name = source_columns[index]
+                    column_name = source_columns[index]
+                    destination_column = destination_columns[index]
+                    source_type = source_types.get(column_name, "")
+                    destination_type = destination_types.get(destination_column, "")
+                    is_timestamp_pair = (
+                        source_type.startswith("timestamp")
+                        and destination_type.startswith("timestamp")
+                    )
+                    equal = (
+                        _timestamp_values_equal(
+                            source_value, destination_value, source_type,
+                            destination_type, destination_timezone,
+                        )
+                        if is_timestamp_pair
+                        else _validation_values_equal(source_value, destination_value)
+                    )
+                    if is_timestamp_pair and column_name not in details["timestamp_columns_normalized"]:
+                        details["timestamp_columns_normalized"].append(column_name)
+                    if not equal:
                         different_columns.append(column_name)
                         if type(source_value) is not type(destination_value):
                             type_differences[column_name] = {
                                 "source": type(source_value).__name__,
                                 "destination": type(destination_value).__name__,
+                                "source_postgres_type": source_type or "unknown",
+                                "destination_postgres_type": destination_type or "unknown",
                             }
                 if different_columns:
                     details["changed_rows"] += 1
@@ -607,6 +689,11 @@ def _validate_table_detailed(
         if callable(commit):
             commit()
 
+    if details["changed_rows"] > details["matched_rows"]:
+        raise RuntimeError(
+            "Validation accounting invariant failed: changed row count exceeds "
+            "the number of rows matched by primary key."
+        )
     details["mismatch_rows"] = (
         details["missing_in_destination"]
         + details["extra_in_destination"]
