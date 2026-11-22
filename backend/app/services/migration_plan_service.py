@@ -149,6 +149,7 @@ def create_plan(db: Session, user: User, project_id: uuid.UUID, payload: Migrati
             selected=False,
             destination_exists=destination_table is not None,
             estimated_rows=source_table.estimated_rows,
+            source_size_bytes=source_table.estimated_size_bytes,
             source_columns=source_table.columns or [],
             destination_columns=destination_table.columns if destination_table else [],
             source_primary_key=source_table.primary_key or {},
@@ -209,6 +210,7 @@ def list_plan_tables(db: Session, plan: MigrationPlan):
                 "selected": row.selected,
                 "destination_exists": row.destination_exists,
                 "estimated_rows": row.estimated_rows,
+                "source_size_bytes": row.source_size_bytes,
                 "column_count": len(row.source_columns or []),
                 "mappings": mappings,
             }

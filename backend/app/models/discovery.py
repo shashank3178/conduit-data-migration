@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -44,8 +44,7 @@ class DiscoveredTable(Base):
     schema_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("discovered_schemas.id", ondelete="CASCADE"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     table_type: Mapped[str] = mapped_column(String(30), nullable=False, default="table")
-    estimated_rows: Mapped[int | None] = mapped_column(Integer)  # diagnostic estimate only
-    estimated_size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    estimated_rows: Mapped[int | None] = mapped_column(Integer)
     columns: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     primary_key: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     foreign_keys: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
