@@ -261,6 +261,35 @@ def test_validation_returns_actionable_counts_and_closes_read_transactions():
     assert destination.commits == 1
 
 
+def test_timestamp_validation_uses_destination_timezone_for_naive_to_timestamptz():
+    from zoneinfo import ZoneInfo
+
+    source_value = datetime(2026, 11, 22, 12, 0, 0)
+    destination_value = source_value.replace(tzinfo=ZoneInfo("UTC"))
+    assert execution._timestamp_values_equal(
+        source_value, destination_value,
+        "timestamp without time zone", "timestamp with time zone", "UTC",
+    )
+    assert not execution._timestamp_values_equal(
+        source_value, destination_value,
+        "timestamp without time zone", "timestamp with time zone", "Asia/Kolkata",
+    )
+
+
+def test_timestamp_validation_compares_instants_for_timestamptz():
+    from datetime import timedelta, timezone
+
+    source_value = datetime(2026, 11, 22, 12, 0, tzinfo=UTC)
+    destination_value = datetime(
+        2026, 11, 22, 17, 30,
+        tzinfo=timezone(timedelta(hours=5, minutes=30)),
+    )
+    assert execution._timestamp_values_equal(
+        source_value, destination_value,
+        "timestamp with time zone", "timestamp with time zone", "UTC",
+    )
+
+
 def test_validation_detects_destination_rows_for_empty_source_table():
     table = SimpleNamespace(
         source_schema="public", source_table="source",
