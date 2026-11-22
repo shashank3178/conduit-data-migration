@@ -64,7 +64,23 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
             inspector = inspect(conn)
             database_name = conn.execute(text("SELECT current_database()")).scalar_one()
             server_version = conn.execute(text("SELECT version()")).scalar_one().splitlines()[0][:255]
-            schemas = sorted(inspector.get_schema_names())
+            schemas = conn.execute(
+                text("""
+                    SELECT n.nspname
+                    FROM pg_namespace n
+                    WHERE has_schema_privilege(
+                        current_user,
+                        n.oid,
+                        'USAGE'
+                    )
+                    AND n.nspname NOT IN (
+                        'pg_catalog',
+                        'information_schema'
+                    )
+                    AND n.nspname NOT LIKE 'pg_toast%'
+                    ORDER BY n.nspname
+                """)
+            ).scalars().all()
             snapshot = db.query(DiscoverySnapshot).filter_by(connection_id=connection.id).first()
             if snapshot is None:
                 snapshot = DiscoverySnapshot(

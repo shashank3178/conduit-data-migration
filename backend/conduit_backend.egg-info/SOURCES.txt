@@ -5,7 +5,9 @@ app/worker.py
 app/api/__init__.py
 app/api/dependencies.py
 app/api/routes/__init__.py
+app/api/routes/analytics.py
 app/api/routes/connections.py
+app/api/routes/database_metrics.py
 app/api/routes/discovery.py
 app/api/routes/health.py
 app/api/routes/migration_plans.py
@@ -21,6 +23,7 @@ app/db/session.py
 app/models/__init__.py
 app/models/connection.py
 app/models/discovery.py
+app/models/migration_metrics.py
 app/models/migration_plan.py
 app/models/migration_run.py
 app/models/project.py
@@ -37,6 +40,7 @@ app/services/connection_service.py
 app/services/discovery_service.py
 app/services/migration_ddl.py
 app/services/migration_execution.py
+app/services/migration_metrics_service.py
 app/services/migration_plan_service.py
 app/services/project_service.py
 conduit_backend.egg-info/PKG-INFO
@@ -48,3 +52,4 @@ tests/test_discovery_serialization.py
 tests/test_migration_ddl.py
 tests/test_migration_execution.py
 tests/test_migration_execution_postgres.py
+tests/test_migration_metrics.py

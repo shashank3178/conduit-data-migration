@@ -626,7 +626,7 @@ def apply_ddl(db: Session, user: User, project_id: uuid.UUID, plan: MigrationPla
 
             # Rebuild DDL only after reconciling the plan with the live destination.
             # This prevents stale discovery snapshots from creating existing tables.
-            preview = preview_ddl(db, plan)
+            preview = preview_ddl(db, plan, user, project_id)
             for index, statement in enumerate(preview["statements"], start=1):
                 failed_statement_index = index
                 failed_statement = statement
