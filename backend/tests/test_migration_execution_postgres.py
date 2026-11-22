@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import psycopg
 import pytest
+from psycopg.pq import TransactionStatus
 
 from app.services.migration_execution import _validate_table, _write_batch
 
@@ -75,3 +76,6 @@ def test_postgres_streaming_reconciliation(pg_connection):
         pg_connection, pg_connection, table, ["id", "value"], ["id", "value"],
         ["id"], ["id"], 2,
     ) == 3
+    # The validator must not leave a read transaction open. The worker reuses
+    # this connection for later tables, whose writes must commit independently.
+    assert pg_connection.info.transaction_status == TransactionStatus.IDLE
