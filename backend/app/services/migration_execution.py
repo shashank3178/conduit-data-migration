@@ -602,7 +602,9 @@ def _validate_table_detailed(
             destination, table.destination_schema, table.destination_table,
             destination_columns, destination_pk,
         )
-    except psycopg.Error as exc:
+    except Exception as exc:
+        # If COPY is unavailable to a role/driver/test double, preserve correctness
+        # by falling back to the exact mapped-column comparison below.
         fingerprint_error = _execution_error_detail(exc)
 
     if source_fingerprint and destination_fingerprint and source_fingerprint[0] == destination_fingerprint[0]:
