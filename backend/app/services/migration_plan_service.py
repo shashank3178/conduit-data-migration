@@ -708,7 +708,7 @@ def _measure_connection(record: DatabaseConnection, tables: list[MigrationPlanTa
                 schema = table.source_schema if record.role == "source" else table.destination_schema
                 name = table.source_table if record.role == "source" else table.destination_table
                 row = remote.execute(
-                    "SELECT pg_total_relation_size(to_regclass(format('%I.%I', %s, %s)))",
+                    "SELECT pg_total_relation_size(to_regclass(format('%I.%I', %s::text, %s::text)))",
                     (schema, name),
                 ).fetchone()
                 table_sizes[str(table.id)] = int(row[0]) if row and row[0] is not None else None

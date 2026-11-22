@@ -183,7 +183,7 @@ def discover(db: Session, user: User, project_id: uuid.UUID, connection_id: uuid
                         {"schema": schema_name, "table": table_name},
                     ).scalar_one_or_none()
                     size_bytes = conn.execute(
-                        text("SELECT pg_total_relation_size(to_regclass(format('%I.%I', :schema, :table)))"),
+                        text("SELECT pg_total_relation_size(to_regclass(format('%I.%I', CAST(:schema AS text), CAST(:table AS text))))"),
                         {"schema": schema_name, "table": table_name},
                     ).scalar_one_or_none() if kind == "table" else None
 
