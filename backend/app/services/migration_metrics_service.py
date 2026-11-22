@@ -83,7 +83,7 @@ def record_committed_batch(
     db, run, progress, rows, inserted, updated, skipped, failed,
     checkpoint_start, checkpoint_end, duration_ms,
     source_fetch_duration_ms=0, destination_write_duration_ms=0,
-    network_rtt_ms=None,
+    network_rtt_ms=None, logical_payload_size=None,
 ):
     """Persist one committed batch in the same metadata transaction as its checkpoint."""
     key = batch_identity(progress.id, checkpoint_start, checkpoint_end)
@@ -91,7 +91,11 @@ def record_committed_batch(
     if existing is not None:
         return existing
 
-    logical_bytes = logical_payload_bytes(rows)
+    logical_bytes = (
+        logical_payload_bytes(rows)
+        if logical_payload_size is None
+        else logical_payload_size
+    )
     sequence = (
         db.query(func.coalesce(func.max(MigrationBatchMetric.sequence), 0))
         .filter_by(run_table_id=progress.id).scalar() or 0
