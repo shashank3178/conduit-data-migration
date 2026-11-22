@@ -37,15 +37,13 @@ export async function apiRequest<T>(
           detail?: string | { message?: string };
           message?: string;
         };
-        if (typeof payload.detail === "string") {
-          message = payload.detail;
-        } else if (payload.detail && typeof payload.detail.message === "string") {
-          message = payload.detail.message;
-        } else if (typeof payload.message === "string") {
-          message = payload.message;
-        } else if (Array.isArray((payload as { detail?: unknown }).detail)) {
-          const details = (payload as { detail: Array<{ msg?: string; loc?: unknown[] }> }).detail;
-          message = details.map((item) => item.msg ?? "Invalid request.").join(" · ");
+        const detail = (payload as { detail?: unknown }).detail;
+        const candidate = typeof detail === "string" ? detail
+          : detail && typeof detail === "object" && "message" in detail ? String((detail as { message?: unknown }).message ?? "")
+          : Array.isArray(detail) ? detail.map((item) => (item as { msg?: string }).msg ?? "Invalid request.").join(" · ")
+          : typeof payload.message === "string" ? payload.message : "";
+        if (candidate && candidate.length <= 300 && !/traceback|stack trace|file \"|internal server error|exception:/i.test(candidate)) {
+          message = candidate;
         }
       } catch {
         // Never surface raw proxy, framework, HTML, or JSON error bodies in the UI.
