@@ -143,20 +143,26 @@ def _get_destination_column_types(destination, table, destination_columns):
     This metadata is used to adapt Python values correctly before
     passing them to Psycopg.
     """
-    rows = destination.execute(
-        """
-        SELECT column_name, data_type
-        FROM information_schema.columns
-        WHERE table_schema = %s
-          AND table_name = %s
-          AND column_name = ANY(%s)
-        """,
-        (
-            table.destination_schema,
-            table.destination_table,
-            destination_columns,
-        ),
-    ).fetchall()
+    # Own this catalog read in a short transaction. Psycopg starts an
+    # implicit transaction for execute(); without this boundary, the first
+    # INSERT batch can become a savepoint inside the catalog-read transaction.
+    # The metadata checkpoint may then commit while destination rows remain
+    # uncommitted until validation, making progress appear ahead of durable data.
+    with destination.transaction():
+        rows = destination.execute(
+            """
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = %s
+              AND table_name = %s
+              AND column_name = ANY(%s)
+            """,
+            (
+                table.destination_schema,
+                table.destination_table,
+                destination_columns,
+            ),
+        ).fetchall()
 
     column_types = {
         column_name: data_type.lower()
@@ -269,13 +275,6 @@ def _write_batch(
             map(sql.Identifier, destination_columns)
         ),
         values_sql,
-    )
-
-    # Adapt values before sending them to Psycopg.
-    flat_values = _adapt_write_values(
-        rows,
-        destination_columns,
-        destination_column_types,
     )
 
     if strategy == "UPSERT":

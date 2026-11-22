@@ -10,6 +10,7 @@ os.environ.setdefault("AUTH0_AUDIENCE", "https://api.example.local")
 os.environ.setdefault("AUTH0_ISSUER", "https://example.auth0.com/")
 
 from app.services.migration_execution import (
+    _get_destination_column_types,
     _json_key,
     _restore_key,
     _validate_table,
@@ -38,6 +39,41 @@ class FakeConnection:
         return FakeResult(self.rows)
 
 
+class FakeTransaction:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def __enter__(self):
+        assert not self.connection.in_transaction
+        self.connection.in_transaction = True
+        return self
+
+    def __exit__(self, exc_type, _exc, _traceback):
+        self.connection.in_transaction = False
+        if exc_type is None:
+            self.connection.committed_transactions += 1
+        else:
+            self.connection.rolled_back_transactions += 1
+        return False
+
+
+class FakeMetadataConnection:
+    def __init__(self, rows):
+        self.rows = rows
+        self.in_transaction = False
+        self.committed_transactions = 0
+        self.rolled_back_transactions = 0
+
+    def transaction(self):
+        return FakeTransaction(self)
+
+    def execute(self, query, params):
+        assert self.in_transaction, "catalog query must run inside its own transaction"
+        self.query = query
+        self.params = params
+        return FakeResult(self.rows)
+
+
 def test_checkpoint_key_round_trip_for_supported_postgres_types():
     identifier = uuid4()
     values = (42, Decimal("19.95"), identifier, date(2026, 11, 17),
@@ -59,6 +95,18 @@ def test_checkpoint_rejects_unsupported_or_null_key_types():
         raise AssertionError("NULL primary-key checkpoint must be rejected")
 
     assert _restore_key([True], [{"type": "BOOLEAN"}]) == (True,)
+
+
+def test_destination_column_type_lookup_commits_its_own_transaction():
+    connection = FakeMetadataConnection([("payload", "jsonb"), ("id", "integer")])
+    table = SimpleNamespace(destination_schema="public", destination_table="target")
+
+    result = _get_destination_column_types(connection, table, ["payload", "id"])
+
+    assert result == {"payload": "jsonb", "id": "integer"}
+    assert connection.committed_transactions == 1
+    assert connection.rolled_back_transactions == 0
+    assert connection.in_transaction is False
 
 
 def test_insert_only_counts_conflicts_as_skipped():
