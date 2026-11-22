@@ -25,11 +25,13 @@ from app.models.migration_run import (
 )
 from app.services.connection_service import decrypt_password
 from app.services.migration_metrics_service import (
+    logical_payload_bytes,
     ensure_run_metric,
     finish_run_metric,
     record_committed_batch,
     record_database_snapshot,
     record_table_storage_snapshot,
+    measure_network_rtt,
 )
 
 
@@ -446,6 +448,10 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
             destination_record = db.get(DatabaseConnection, plan.destination_connection_id)
             source = _connect(source_record)
             destination = _connect(destination_record)
+            network_rtt = {
+                "source": measure_network_rtt(source),
+                "destination": measure_network_rtt(destination),
+            }
             record_database_snapshot(db, run, source_record, "source", source)
             record_database_snapshot(db, run, destination_record, "destination", destination)
             db.commit()
@@ -498,6 +504,8 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 while upper_key is not None:
                     if _cancel_requested(run_id):
                         break
+                    batch_started = time.monotonic()
+                    fetch_started = time.monotonic()
                     for source_attempt in range(run.max_retries + 1):
                         try:
                             batch = _fetch_batch(
@@ -514,10 +522,11 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                             time.sleep(min(2 ** source_attempt, 15))
                             source.close()
                             source = _connect(source_record)
+                    fetch_duration_ms = round((time.monotonic() - fetch_started) * 1000, 2)
                     if not batch:
                         break
                     keys = [tuple(row[source_columns.index(name)] for name in source_pk) for row in batch]
-                    batch_started = time.monotonic()
+                    write_started = time.monotonic()
                     checkpoint_start = list(last_key) if last_key is not None else None
                     for attempt in range(run.max_retries + 1):
                         try:
@@ -534,6 +543,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                             time.sleep(min(2 ** attempt, 15))
                             destination.close()
                             destination = _connect(destination_record)
+                    destination_write_duration_ms = round((time.monotonic() - write_started) * 1000, 2)
                     last_key = keys[-1]
                     progress.last_key = _json_key(last_key)
                     if retrying_errors:
@@ -558,8 +568,11 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     record_committed_batch(
                         db, run, progress, batch, inserted, updated, skipped, failed,
                         checkpoint_start, progress.last_key, duration_ms,
+                        source_fetch_duration_ms=fetch_duration_ms,
+                        destination_write_duration_ms=destination_write_duration_ms,
+                        network_rtt_ms=network_rtt,
                     )
-                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, duration_ms=duration_ms)
+                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, logical_bytes=logical_payload_bytes(batch), duration_ms=duration_ms, source_fetch_duration_ms=fetch_duration_ms, destination_write_duration_ms=destination_write_duration_ms, source_network_rtt_ms=network_rtt["source"], destination_network_rtt_ms=network_rtt["destination"])
                     db.commit()
                 if _cancel_requested(run_id):
                     progress.status = "cancelled"
