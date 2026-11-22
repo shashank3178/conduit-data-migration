@@ -474,6 +474,10 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 "source": measure_network_rtt(source),
                 "destination": measure_network_rtt(destination),
             }
+            run_metric = ensure_run_metric(db, run)
+            run_metric.source_network_rtt_ms = network_rtt["source"]
+            run_metric.destination_network_rtt_ms = network_rtt["destination"]
+            db.commit()
             record_database_snapshot(db, run, source_record, "source", source)
             record_database_snapshot(db, run, destination_record, "destination", destination)
             db.commit()
