@@ -1,7 +1,6 @@
 """Durable keyset-paginated PostgreSQL migration execution."""
 import logging
 import math
-import os
 import time
 import uuid
 from datetime import UTC, date, datetime
@@ -242,6 +241,7 @@ def _write_batch(
     rows,
     strategy,
     destination_column_types=None,
+    write_engine="VALUES",
 ):
     """
     Write a batch to PostgreSQL with destination-aware value adaptation.
@@ -253,7 +253,7 @@ def _write_batch(
 
     # Roll out COPY independently from the legacy VALUES writer. The enclosing
     # _write_with_isolation transaction remains the durability boundary.
-    if os.getenv("CONDUIT_WRITE_ENGINE", "values").strip().lower() == "copy":
+    if write_engine == "COPY":
         return copy_stage_and_merge(
             destination,
             table,
@@ -420,6 +420,7 @@ def _write_with_isolation(
     rows,
     keys,
     strategy,
+    write_engine="VALUES",
 ):
     def write_or_split(batch_rows, batch_keys):
         try:
@@ -432,6 +433,7 @@ def _write_with_isolation(
                     batch_rows,
                     strategy,
                     destination_column_types,
+                    write_engine,
                 ), 0, [])
         except psycopg.OperationalError:
             raise
@@ -905,6 +907,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                             batch,
                             keys,
                             run.write_strategy,
+                            run.write_engine,
                         )
                             break
                         except psycopg.OperationalError:

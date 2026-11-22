@@ -6,11 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 RunStatus = Literal["queued", "running", "completed", "failed", "cancel_requested", "cancelled", "partially_failed"]
 WriteStrategy = Literal["INSERT_ONLY", "UPSERT"]
+WriteEngine = Literal["VALUES", "COPY"]
 
 
 class MigrationRunCreate(BaseModel):
     batch_size: int = Field(default=1000, ge=100, le=10000)
     write_strategy: WriteStrategy = "INSERT_ONLY"
+    write_engine: WriteEngine = "VALUES"
     max_retries: int = Field(default=3, ge=0, le=10)
 
 
@@ -55,6 +57,7 @@ class MigrationRunResponse(BaseModel):
     status: RunStatus
     batch_size: int
     write_strategy: WriteStrategy
+    write_engine: WriteEngine
     max_retries: int
     total_tables: int
     completed_tables: int

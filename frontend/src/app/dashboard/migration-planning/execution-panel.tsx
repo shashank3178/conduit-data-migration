@@ -8,7 +8,7 @@ import {
 } from "./execution-actions";
 
 type Run = {
-  id: string; status: string; batch_size: number; write_strategy: "INSERT_ONLY" | "UPSERT";
+  id: string; status: string; batch_size: number; write_strategy: "INSERT_ONLY" | "UPSERT"; write_engine: "VALUES" | "COPY";
   total_tables: number; completed_tables: number; total_rows: number; migrated_rows: number;
   worker_id?: string | null; heartbeat_at?: string | null; started_at?: string | null;
   inserted_rows: number; updated_rows: number; skipped_rows: number; failed_rows: number;
@@ -18,6 +18,7 @@ type Run = {
 export default function ExecutionPanel({ projectId, planId, planStatus }: { projectId: string; planId: string; planStatus: string }) {
   const [batchSize, setBatchSize] = useState(1000);
   const [writeStrategy, setWriteStrategy] = useState<"INSERT_ONLY" | "UPSERT">("INSERT_ONLY");
+  const [writeEngine, setWriteEngine] = useState<"VALUES" | "COPY">("VALUES");
   const [runs, setRuns] = useState<Run[]>([]);
   const [selected, setSelected] = useState<Run | null>(null);
   const [tableProgress, setTableProgress] = useState<any[]>([]);
@@ -67,7 +68,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
     setBusy(true); setError("");
     try {
       await refreshMetrics();
-      const run = await startMigrationRun(projectId, planId, batchSize, writeStrategy);
+      const run = await startMigrationRun(projectId, planId, batchSize, writeStrategy, writeEngine);
       setSelected(run);
       await refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not queue migration."); }
@@ -184,6 +185,19 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
     <div className="flex flex-wrap items-end gap-3">
       <label className="text-sm">Batch size <select value={batchSize} onChange={(e) => setBatchSize(Number(e.target.value))} className="ml-2 rounded border p-2"><option value={500}>500</option><option value={1000}>1,000</option><option value={2500}>2,500</option><option value={5000}>5,000</option><option value={10000}>10,000</option></select></label>
       <div className="w-full">
+        <p className="mb-2 text-xs font-semibold text-slate-600">Choose write engine</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button type="button" onClick={() => setWriteEngine("VALUES")} className={`rounded-xl border p-4 text-left transition ${writeEngine === "VALUES" ? "border-indigo-300 bg-indigo-50/70 ring-2 ring-indigo-100" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+            <span className="text-sm font-semibold text-slate-800">VALUES (standard)</span>
+            <span className="mt-1 block text-[11px] leading-5 text-slate-500">Conventional parameterized INSERT. Recommended compatibility baseline.</span>
+          </button>
+          <button type="button" onClick={() => setWriteEngine("COPY")} className={`rounded-xl border p-4 text-left transition ${writeEngine === "COPY" ? "border-indigo-300 bg-indigo-50/70 ring-2 ring-indigo-100" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+            <span className="text-sm font-semibold text-slate-800">COPY (staging + merge)</span>
+            <span className="mt-1 block text-[11px] leading-5 text-slate-500">Streams rows through PostgreSQL COPY, then merges in the same batch transaction. Test against your destination first.</span>
+          </button>
+        </div>
+      </div>
+      <div className="w-full">
         <p className="mb-2 text-xs font-semibold text-slate-600">Choose write strategy</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <button type="button" onClick={() => setWriteStrategy("INSERT_ONLY")} className={`rounded-xl border p-4 text-left transition ${writeStrategy === "INSERT_ONLY" ? "border-indigo-300 bg-indigo-50/70 ring-2 ring-indigo-100" : "border-slate-200 bg-white hover:border-slate-300"}`}>
@@ -221,6 +235,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
         <div><span className="text-slate-500">Total rows</span><p className="font-semibold">{selected.total_rows.toLocaleString()}</p></div>
         <div><span className="text-slate-500">Validation</span><p className="font-semibold">{selected.validation_status} ({selected.mismatch_rows} mismatches)</p></div>
         <div><span className="text-slate-500">Strategy</span><p className="font-semibold">{selected.write_strategy}</p></div>
+        <div><span className="text-slate-500">Engine</span><p className="font-semibold">{selected.write_engine}</p></div>
       </div>
       {runMetric && <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold text-slate-800">Transfer performance</h3><p className="mt-1 text-[11px] text-slate-500">Logical payload bytes are estimated from serialized fetched rows, not wire-level packet counters.</p></div><span className="text-xs font-semibold text-indigo-700">{formatRate(runMetric.logical_bytes_per_second)}</span></div>

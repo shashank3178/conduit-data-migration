@@ -72,11 +72,12 @@ def start_run(
     run = MigrationRun(
         project_id=project_id, owner_id=user.id, plan_id=plan.id,
         batch_size=payload.batch_size, write_strategy=payload.write_strategy,
-        max_retries=payload.max_retries, total_tables=len(selected), status="queued",
+        write_engine=payload.write_engine, max_retries=payload.max_retries,
+        total_tables=len(selected), status="queued",
     )
     db.add(run)
     db.flush()
-    db.add(MigrationRunEvent(run_id=run.id, event_type="run_queued", details={"strategy": run.write_strategy, "batch_size": run.batch_size}))
+    db.add(MigrationRunEvent(run_id=run.id, event_type="run_queued", details={"strategy": run.write_strategy, "engine": run.write_engine, "batch_size": run.batch_size}))
     for table in selected:
         db.add(MigrationRunTable(
             run_id=run.id, plan_table_id=table.id,
@@ -186,7 +187,7 @@ def get_run_report(project_id: uuid.UUID, plan_id: uuid.UUID, run_id: uuid.UUID,
     return {
         "run": {
             "id": str(run.id), "status": run.status, "write_strategy": run.write_strategy,
-            "batch_size": run.batch_size, "total_rows": run.total_rows,
+            "write_engine": run.write_engine, "batch_size": run.batch_size, "total_rows": run.total_rows,
             "inserted_rows": run.inserted_rows, "updated_rows": run.updated_rows,
             "skipped_rows": run.skipped_rows, "failed_rows": run.failed_rows,
             "validation_status": run.validation_status, "mismatch_rows": run.mismatch_rows,
