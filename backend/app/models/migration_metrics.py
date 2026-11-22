@@ -36,7 +36,6 @@ class MigrationRunMetric(Base):
     logical_bytes_per_second: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     source_fetch_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     destination_write_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0)
-    metadata_commit_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     source_network_rtt_ms: Mapped[float | None] = mapped_column(Float)
     destination_network_rtt_ms: Mapped[float | None] = mapped_column(Float)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
