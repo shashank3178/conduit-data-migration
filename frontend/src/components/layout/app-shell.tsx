@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Activity, ArrowUpRight, Boxes, Cable, ChartLine, Database, LayoutDashboard,
-  LogOut, Workflow, ShieldCheck, Layers3,
+  Activity, Boxes, Cable, ChartLine, Database, LayoutDashboard,
+  LogOut, Workflow, ShieldCheck,
 } from "lucide-react";
 
 const navigation = [
@@ -36,11 +36,6 @@ export default function AppShell({ children, userLabel }: { children: React.Reac
               </Link>;
             })}
         </nav>
-        <div className="m-3 rounded-lg border border-slate-200 bg-[#fbf9f7] p-3">
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-800"><Layers3 size={15} className="text-[#fc6d26]"/> Migration workspace</div>
-          <p className="mt-2 text-[11px] leading-5 text-slate-500">Plan, execute and validate database migrations with observable checkpoints.</p>
-          <Link href="/dashboard/migration-planning" className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-[#b84b12] hover:text-[#fc6d26]">Open planner <ArrowUpRight size={12}/></Link>
-        </div>
         <div className="border-t border-slate-200 px-5 py-3 text-[10px] text-slate-400">CONDUIT · LOCAL WORKSPACE</div>
       </aside>
       <div className="min-h-screen lg:pl-[248px]">
