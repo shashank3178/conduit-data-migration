@@ -16,7 +16,6 @@ type Run = {
 };
 
 export default function ExecutionPanel({ projectId, planId, planStatus }: { projectId: string; planId: string; planStatus: string }) {
-  const [batchSize, setBatchSize] = useState(1000);
   const [writeStrategy, setWriteStrategy] = useState<"INSERT_ONLY" | "UPSERT">("INSERT_ONLY");
   const [writeEngine, setWriteEngine] = useState<"VALUES" | "COPY">("VALUES");
   const [runs, setRuns] = useState<Run[]>([]);
@@ -68,7 +67,7 @@ export default function ExecutionPanel({ projectId, planId, planStatus }: { proj
     setBusy(true); setError("");
     try {
       await refreshMetrics();
-      const run = await startMigrationRun(projectId, planId, batchSize, writeStrategy, writeEngine);
+      const run = await startMigrationRun(projectId, planId, writeStrategy, writeEngine);
       setSelected(run);
       await refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not queue migration."); }

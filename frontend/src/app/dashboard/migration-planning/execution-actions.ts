@@ -11,9 +11,9 @@ async function token() {
   return result.token;
 }
 
-export async function startMigrationRun(projectId: string, planId: string, batchSize: number, writeStrategy: "INSERT_ONLY" | "UPSERT", writeEngine: "VALUES" | "COPY") {
+export async function startMigrationRun(projectId: string, planId: string, writeStrategy: "INSERT_ONLY" | "UPSERT", writeEngine: "VALUES" | "COPY") {
   return apiRequest<any>(`/projects/${projectId}/migration-plans/${planId}/runs`, await token(), {
-    method: "POST", body: JSON.stringify({ batch_size: batchSize, write_strategy: writeStrategy, write_engine: writeEngine }),
+    method: "POST", body: JSON.stringify({ write_strategy: writeStrategy, write_engine: writeEngine }),
   });
 }
 export async function listMigrationRuns(projectId: string, planId: string) {
