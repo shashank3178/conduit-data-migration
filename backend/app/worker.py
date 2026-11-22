@@ -1,11 +1,11 @@
 """Run durable migration jobs from metadata PostgreSQL."""
 import os
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import signal
 import socket
 import threading
 import time
 import uuid
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import UTC, datetime
 
 from app.db.session import SessionLocal
