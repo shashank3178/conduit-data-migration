@@ -10,7 +10,11 @@ os.environ.setdefault("AUTH0_AUDIENCE", "https://api.example.local")
 os.environ.setdefault("AUTH0_ISSUER", "https://example.auth0.com/")
 
 from app.services.migration_execution import (
-    _json_key, _restore_key, _validate_table, _validate_table_detailed, _write_batch,
+    _json_key,
+    _restore_key,
+    _validate_table,
+    _validate_table_detailed,
+    _write_batch,
 )
 
 
