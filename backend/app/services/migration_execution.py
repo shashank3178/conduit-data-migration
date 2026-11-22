@@ -1,4 +1,5 @@
 """Durable keyset-paginated PostgreSQL migration execution."""
+import hashlib
 import logging
 import math
 import time
@@ -540,11 +541,70 @@ def _timestamp_values_equal(source_value, destination_value,
     return source_value.astimezone(zone).replace(tzinfo=None) == destination_value
 
 
+def _copy_stream_fingerprint(connection, schema, table_name, columns, primary_key):
+    """Hash a deterministic PostgreSQL COPY text stream without materializing rows."""
+    query = sql.SQL("COPY (SELECT {} FROM {}.{} ORDER BY {}) TO STDOUT").format(
+        sql.SQL(", ").join(sql.SQL("{}::text").format(sql.Identifier(column)) for column in columns),
+        sql.Identifier(schema),
+        sql.Identifier(table_name),
+        sql.SQL(", ").join(map(sql.Identifier, primary_key)),
+    )
+    digest = hashlib.sha256()
+    byte_count = 0
+    with connection.transaction():
+        connection.execute("SET LOCAL TIME ZONE 'UTC'")
+        connection.execute("SET LOCAL DateStyle TO 'ISO, YMD'")
+        connection.execute("SET LOCAL IntervalStyle TO 'postgres'")
+        with connection.cursor().copy(query) as copy:
+            for chunk in copy:
+                if isinstance(chunk, str):
+                    chunk = chunk.encode("utf-8")
+                digest.update(chunk)
+                byte_count += len(chunk)
+    return digest.hexdigest(), byte_count
+
+
 def _validate_table_detailed(
     source, destination, table, source_columns, destination_columns,
     source_pk, destination_pk, batch_size, sample_limit=20,
 ):
-    """Stream-compare rows and return actionable, bounded validation diagnostics."""
+    """Validate via COPY stream fingerprints first, then exact comparison on mismatch."""
+    source_fingerprint = destination_fingerprint = None
+    fingerprint_error = None
+    try:
+        source_fingerprint = _copy_stream_fingerprint(
+            source, table.source_schema, table.source_table, source_columns, source_pk
+        )
+        destination_fingerprint = _copy_stream_fingerprint(
+            destination, table.destination_schema, table.destination_table,
+            destination_columns, destination_pk,
+        )
+    except psycopg.Error as exc:
+        fingerprint_error = _execution_error_detail(exc)
+
+    if source_fingerprint and destination_fingerprint and source_fingerprint[0] == destination_fingerprint[0]:
+        return {
+            "validation_method": "PostgreSQL COPY stream SHA-256",
+            "copy_stream_digest_match": True,
+            "source_copy_stream_sha256": source_fingerprint[0],
+            "destination_copy_stream_sha256": destination_fingerprint[0],
+            "source_logical_bytes_compared": source_fingerprint[1],
+            "destination_logical_bytes_compared": destination_fingerprint[1],
+            "source_rows": None,
+            "destination_rows": None,
+            "missing_in_destination": 0,
+            "extra_in_destination": 0,
+            "changed_rows": 0,
+            "matched_rows": None,
+            "exact_match_rows": None,
+            "mismatch_rows": 0,
+            "samples": [],
+            "sample_limit": sample_limit,
+            "comparison": "Deterministic COPY text streams ordered by mapped primary key with UTC/ISO session settings",
+            "validation_checks": {"copy_stream_digest_match": True, "all_mapped_values_match": True},
+            "data_consistency_percent": 100.0,
+        }
+
     source_query = sql.SQL("SELECT {} FROM {}.{} ORDER BY {}").format(
         sql.SQL(", ").join(map(sql.Identifier, source_columns)),
         sql.Identifier(table.source_schema), sql.Identifier(table.source_table),
@@ -576,6 +636,13 @@ def _validate_table_detailed(
         # connections always provide transaction() and execute().
         source_types, destination_types = {}, {}
     details = {
+        "validation_method": "exact mapped-column streaming fallback",
+        "copy_stream_digest_match": False if source_fingerprint and destination_fingerprint else None,
+        "copy_fingerprint_error": fingerprint_error,
+        "source_copy_stream_sha256": source_fingerprint[0] if source_fingerprint else None,
+        "destination_copy_stream_sha256": destination_fingerprint[0] if destination_fingerprint else None,
+        "source_copy_stream_bytes": source_fingerprint[1] if source_fingerprint else None,
+        "destination_copy_stream_bytes": destination_fingerprint[1] if destination_fingerprint else None,
         "source_rows": 0,
         "destination_rows": 0,
         "missing_in_destination": 0,
@@ -585,7 +652,7 @@ def _validate_table_detailed(
         "mismatch_rows": 0,
         "samples": [],
         "sample_limit": sample_limit,
-        "comparison": "primary-key ordered streaming comparison with PostgreSQL type-aware timestamp semantics",
+        "comparison": "COPY SHA-256 mismatch/unavailable; exact primary-key ordered value comparison with PostgreSQL timestamp semantics",
         "timestamp_timezone": destination_timezone,
         "timestamp_columns_normalized": [],
     }
