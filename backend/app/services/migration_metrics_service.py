@@ -30,12 +30,47 @@ def batch_identity(run_table_id, checkpoint_start, checkpoint_end) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+_RUN_COUNTER_FIELDS = (
+    "rows_fetched",
+    "rows_committed",
+    "batches_committed",
+    "logical_bytes",
+    "processing_duration_ms",
+    "rows_per_second",
+    "logical_bytes_per_second",
+)
+_TABLE_COUNTER_FIELDS = (
+    "rows_fetched",
+    "rows_committed",
+    "batches_committed",
+    "logical_bytes",
+)
+
+
+def _initialize_counters(metric, fields):
+    """Materialize SQLAlchemy defaults before counters are used in Python."""
+    for field in fields:
+        if getattr(metric, field, None) is None:
+            setattr(metric, field, 0)
+
+
 def ensure_run_metric(db, run):
     metric = db.query(MigrationRunMetric).filter_by(run_id=run.id).one_or_none()
     if metric is None:
-        metric = MigrationRunMetric(run_id=run.id, started_at=run.started_at or datetime.now(UTC))
+        metric = MigrationRunMetric(
+            run_id=run.id,
+            started_at=run.started_at or datetime.now(UTC),
+            rows_fetched=0,
+            rows_committed=0,
+            batches_committed=0,
+            logical_bytes=0,
+            processing_duration_ms=0,
+            rows_per_second=0,
+            logical_bytes_per_second=0,
+        )
         db.add(metric)
         db.flush()
+    _initialize_counters(metric, _RUN_COUNTER_FIELDS)
     return metric
 
 
@@ -83,8 +118,22 @@ def record_committed_batch(
 
     table_metric = db.query(MigrationTableMetric).filter_by(run_table_id=progress.id).one_or_none()
     if table_metric is None:
-        table_metric = MigrationTableMetric(run_id=run.id, run_table_id=progress.id)
+        # SQLAlchemy's mapped_column(default=0) is applied at INSERT/flush time,
+        # not necessarily at object construction. These values are incremented
+        # immediately below, so initialize them explicitly here.
+        table_metric = MigrationTableMetric(
+            run_id=run.id,
+            run_table_id=progress.id,
+            rows_fetched=0,
+            rows_committed=0,
+            batches_committed=0,
+            logical_bytes=0,
+        )
         db.add(table_metric)
+    else:
+        # Defensive handling for legacy rows created before counters were
+        # constrained/defaulted correctly, or databases with schema drift.
+        _initialize_counters(table_metric, _TABLE_COUNTER_FIELDS)
     table_metric.rows_fetched += len(rows)
     table_metric.rows_committed += committed
     table_metric.batches_committed += 1
@@ -131,8 +180,17 @@ def record_table_storage_snapshot(db, run, progress, source, destination):
     destination_size = _relation_size(destination, progress.destination_schema, progress.destination_table)
     metric = db.query(MigrationTableMetric).filter_by(run_table_id=progress.id).one_or_none()
     if metric is None:
-        metric = MigrationTableMetric(run_id=run.id, run_table_id=progress.id)
+        metric = MigrationTableMetric(
+            run_id=run.id,
+            run_table_id=progress.id,
+            rows_fetched=0,
+            rows_committed=0,
+            batches_committed=0,
+            logical_bytes=0,
+        )
         db.add(metric)
+    else:
+        _initialize_counters(metric, _TABLE_COUNTER_FIELDS)
     metric.source_physical_bytes = source_size
     metric.destination_physical_bytes = destination_size
     metric.storage_measured_at = datetime.now(UTC)
