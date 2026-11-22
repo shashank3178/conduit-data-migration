@@ -486,7 +486,35 @@ def validate_and_update_plan(db: Session, plan: MigrationPlan):
     return result
 
 
-def preview_ddl(db: Session, plan: MigrationPlan):
+def preview_ddl(
+    db: Session, plan: MigrationPlan, user: User, project_id: uuid.UUID,
+):
+    """Preview DDL from the live destination, not a potentially stale discovery snapshot."""
+    from app.services.discovery_service import _engine_for
+
+    connection = connection_service.get_connection(
+        db, user, project_id, plan.destination_connection_id
+    )
+    engine = _engine_for(connection)
+    try:
+        with engine.connect() as remote:
+            _refresh_destination_targets(db, plan, remote)
+        # Persist refreshed existence/column metadata so the plan UI and the
+        # subsequent DDL apply operation use the same live destination state.
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception(
+            "Could not refresh destination schema for DDL preview: plan_id=%s connection_id=%s",
+            str(plan.id), str(connection.id),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Could not inspect the live destination schema. Verify the destination connection and schema permissions.",
+        ) from exc
+    finally:
+        engine.dispose()
+
     tables = db.query(MigrationPlanTable).filter_by(plan_id=plan.id, selected=True).all()
     mappings = {
         table.id: db.query(MigrationColumnMapping).filter_by(plan_table_id=table.id).all()
