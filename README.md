@@ -104,7 +104,7 @@ cd conduit-data-migration\backend
 .\\.venv\Scripts\Activate.ps1
 python -m app.worker
 ~~~
-Keep at least one worker running; multiple worker processes may share the PostgreSQL-backed queue.
+Keep at least one worker running; multiple worker processes may share the PostgreSQL-backed queue. Each worker process can also run multiple jobs concurrently by setting `CONDUIT_WORKER_CONCURRENCY` (default `1`, maximum `32`). Start with `2` and increase only after checking source/destination connection limits, metadata pool capacity, and database CPU/IO. The API and worker are already separate processes; the API only enqueues durable jobs.
 
 **Terminal 3 — frontend:**
 ~~~powershell
