@@ -38,6 +38,7 @@ type PlanTable = {
   selected: boolean;
   destination_exists: boolean;
   estimated_rows: number | null;
+  source_size_bytes?: number | null;
   column_count: number;
   mappings: Mapping[];
 };
