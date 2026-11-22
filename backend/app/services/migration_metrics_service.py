@@ -1,6 +1,7 @@
 """Idempotent migration metrics and PostgreSQL storage measurements."""
 import hashlib
 import json
+import time
 from datetime import UTC, datetime
 
 import psycopg
@@ -221,7 +222,7 @@ def finish_run_metric(db, run):
 
 def measure_network_rtt(connection):
     """Measure one PostgreSQL request/response round trip; this is latency, not bandwidth."""
-    started = __import__("time").monotonic()
+    started = time.monotonic()
     with connection.transaction():
         connection.execute("SELECT 1").fetchone()
-    return round((__import__("time").monotonic() - started) * 1000, 2)
+    return round((time.monotonic() - started) * 1000, 2)
