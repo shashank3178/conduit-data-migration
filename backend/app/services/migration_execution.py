@@ -483,7 +483,7 @@ def _validation_key_payload(key, key_columns):
     }
 
 
-def _validation_schema_metadata(connection, table, columns):
+def _validation_schema_metadata(connection, schema, table_name, columns):
     """Read mapped PostgreSQL types and the destination session timezone."""
     with connection.transaction():
         rows = connection.execute(
@@ -493,10 +493,7 @@ def _validation_schema_metadata(connection, table, columns):
             WHERE table_schema = %s AND table_name = %s
               AND column_name = ANY(%s)
             """,
-            (table.source_schema if connection._conduit_validation_role == "source"
-             else table.destination_schema,
-             table.source_table if connection._conduit_validation_role == "source"
-             else table.destination_table, columns),
+            (schema, table_name, columns),
         ).fetchall()
         timezone_name = connection.execute(
             "SELECT current_setting('TimeZone')"
@@ -550,11 +547,12 @@ def _validate_table_detailed(
     destination_types = {}
     destination_timezone = "UTC"
     try:
-        source._conduit_validation_role = "source"
-        source_types, _ = _validation_schema_metadata(source, table, source_columns)
-        destination._conduit_validation_role = "destination"
+        source_types, _ = _validation_schema_metadata(
+            source, table.source_schema, table.source_table, source_columns
+        )
         destination_types, destination_timezone = _validation_schema_metadata(
-            destination, table, destination_columns
+            destination, table.destination_schema, table.destination_table,
+            destination_columns,
         )
     except (AttributeError, TypeError):
         # Lightweight test doubles may expose cursors only. Real psycopg
