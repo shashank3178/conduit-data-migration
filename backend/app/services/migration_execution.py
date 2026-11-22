@@ -485,18 +485,17 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     )).fetchone()[0]
                     run.total_rows += progress.total_rows
                     db.commit()
-                if not progress.upper_key:
-                    progress.status = "completed"
-                    run.completed_tables += 1
-                    db.commit()
-                    continue
-                upper_key = _restore_key(progress.upper_key, key_meta)
+                upper_key = (
+                    _restore_key(progress.upper_key, key_meta)
+                    if progress.upper_key
+                    else None
+                )
                 last_key = _restore_key(progress.last_key, key_meta) if progress.last_key else None
                 unresolved_errors = db.query(MigrationRowError).filter_by(
                     run_table_id=progress.id, resolved_at=None
                 ).all()
                 retrying_errors = bool(unresolved_errors)
-                while True:
+                while upper_key is not None:
                     if _cancel_requested(run_id):
                         break
                     for source_attempt in range(run.max_retries + 1):
