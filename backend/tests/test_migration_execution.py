@@ -11,12 +11,13 @@ os.environ.setdefault("AUTH0_ISSUER", "https://example.auth0.com/")
 
 from app.services import migration_execution as execution
 from app.services.migration_execution import (
-    _get_destination_column_types, _write_with_isolation,
+    _get_destination_column_types,
     _json_key,
     _restore_key,
     _validate_table,
     _validate_table_detailed,
     _write_batch,
+    _write_with_isolation,
 )
 
 
@@ -129,7 +130,7 @@ def test_write_isolation_splits_failed_batches_instead_of_retrying_every_row(mon
     bad_key = (3,)
     recorded_errors = []
 
-    def fake_write_batch(_connection, _table, _columns, _conflicts, rows, _strategy, _types):
+    def fake_write_batch(_connection, _table, _columns, _conflicts, rows, _strategy, _types, _write_engine):
         if any(row[0] == bad_key[0] for row in rows):
             raise psycopg.errors.CheckViolation("test constraint violation")
         return len(rows), 0, 0

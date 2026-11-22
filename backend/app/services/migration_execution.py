@@ -9,8 +9,6 @@ from decimal import Decimal
 from uuid import UUID as PyUUID
 from zoneinfo import ZoneInfo
 
-logger = logging.getLogger(__name__)
-
 import psycopg
 from psycopg import sql
 from psycopg.types.json import Json, Jsonb
@@ -35,6 +33,9 @@ from app.services.migration_metrics_service import (
     record_database_snapshot,
     record_table_storage_snapshot,
 )
+from app.services.postgres_copy_engine import copy_stage_and_merge
+
+logger = logging.getLogger(__name__)
 
 
 def _event(db, run, event_type, run_table=None, **details):
@@ -240,6 +241,7 @@ def _write_batch(
     rows,
     strategy,
     destination_column_types=None,
+    write_engine="VALUES",
 ):
     """
     Write a batch to PostgreSQL with destination-aware value adaptation.
@@ -248,6 +250,19 @@ def _write_batch(
     """
     if not rows:
         return 0, 0, 0
+
+    # Roll out COPY independently from the legacy VALUES writer. The enclosing
+    # _write_with_isolation transaction remains the durability boundary.
+    if write_engine == "COPY":
+        return copy_stage_and_merge(
+            destination,
+            table,
+            destination_columns,
+            conflict_columns,
+            rows,
+            strategy,
+            destination_column_types,
+        )
 
     width = len(destination_columns)
 
@@ -405,6 +420,7 @@ def _write_with_isolation(
     rows,
     keys,
     strategy,
+    write_engine="VALUES",
 ):
     def write_or_split(batch_rows, batch_keys):
         try:
@@ -417,6 +433,7 @@ def _write_with_isolation(
                     batch_rows,
                     strategy,
                     destination_column_types,
+                    write_engine,
                 ), 0, [])
         except psycopg.OperationalError:
             raise
@@ -890,6 +907,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                             batch,
                             keys,
                             run.write_strategy,
+                            run.write_engine,
                         )
                             break
                         except psycopg.OperationalError:
