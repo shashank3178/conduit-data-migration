@@ -140,14 +140,25 @@ def _fetch_batch(source, table, pk_columns, source_columns, target_bytes, last_k
         sql.SQL(", ").join(map(sql.Identifier, pk_columns)),
     )
     batch, transferred_bytes = [], 0
+    fetch_size = 1
     with source.cursor(name=f"conduit_extract_{uuid.uuid4().hex[:16]}") as cursor:
         cursor.execute(query, params)
         while transferred_bytes < target_bytes:
-            block = cursor.fetchmany(8)
+            block = cursor.fetchmany(fetch_size)
             if not block:
                 break
             batch.extend(block)
-            transferred_bytes += logical_payload_bytes(block)
+            block_bytes = logical_payload_bytes(block)
+            transferred_bytes += block_bytes
+            # Adapt server-cursor fetches to observed record width. Each fetch
+            # stays near 4 MiB while the durable chunk remains byte-targeted.
+            average_row_bytes = max(1, block_bytes // len(block))
+            remaining_bytes = max(1, target_bytes - transferred_bytes)
+            fetch_size = max(
+                1,
+                min(65536, (4 * 1024 * 1024) // average_row_bytes,
+                    max(1, remaining_bytes // average_row_bytes)),
+            )
     source.commit()
     return batch
 
