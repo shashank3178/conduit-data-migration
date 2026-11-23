@@ -50,7 +50,7 @@ def _type_sql(native_type: str):
     simple = {
         "smallint", "integer", "bigint", "real", "double precision",
         "boolean", "text", "bytea", "date", "uuid", "json", "jsonb",
-        "xml", "inet", "cidr", "macaddr", "money",
+        "xml", "inet", "cidr", "macaddr", "money", "numeric",\n        "character varying", "character", "bit", "bit varying",
         "timestamp with time zone", "timestamp without time zone",
         "timestamp", "time with time zone", "time without time zone", "time",
     }
