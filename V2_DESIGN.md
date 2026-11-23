@@ -28,26 +28,43 @@ Build a production-oriented, database-agnostic migration platform with bounded s
 9. Secrets are references to external secret providers, never plaintext metadata.
 10. Resource pressure triggers bounded backpressure rather than unbounded queues.
 
-## Deliverables in this branch
+## Implemented foundation
 
 - Architecture and accepted ADRs: `docs/architecture`, `docs/adr`
 - Canonical schema, adapter and event contracts: `backend/src/snowbridge/contracts.py`
-- Metadata schema proposal: `backend/sql/0001_metadata_schema.sql`
-- Contract tests: `backend/tests/test_contracts.py`
-- Operational recovery and security design: `docs/OPERATIONS.md`
-- Test/benchmark plan: `docs/TEST_STRATEGY.md`
-- Phased implementation roadmap: `docs/IMPLEMENTATION_ROADMAP.md`
+- Initial metadata schema and additive durable-lease migration: `backend/sql/0001_metadata_schema.sql`, `backend/sql/0002_durable_task_leases.sql`
+- PostgreSQL connectivity, capability preflight, catalog discovery, exported-snapshot helper, keyset page reader and COPY primitive: `backend/src/snowbridge/adapters/postgresql.py`, `backend/src/snowbridge/snapshot.py`
+- Versioned, advisory-locked, checksum-verified metadata migration runner
+- PostgreSQL task queue with SKIP LOCKED claiming, lease fencing, heartbeats, bounded retries and terminal failure
+- Unit and PostgreSQL integration tests for contracts, configuration, task lease recovery and stale-worker rejection
+- Native PostgreSQL local-development instructions: `docs/LOCAL_DEVELOPMENT.md`
+- Delivery and exit gates: `docs/IMPLEMENTATION_ROADMAP.md`
 
-These are the foundation, not an end-to-end migration engine. PostgreSQL-to-PostgreSQL snapshot execution, real secret resolution, API, workers, CDC and production reconciliation remain to be implemented.
+The task queue is a metadata-plane primitive, not a complete worker runtime. A task must not be acknowledged until target data is committed using a target-side idempotency protocol.
+
+## Explicitly not production-ready yet
+
+- End-to-end PostgreSQL-to-PostgreSQL run service and management API
+- Coordinated multi-worker snapshot scheduler and cancellation lifecycle
+- Strict byte-bounded row/LOB streaming (the existing keyset reader is row-bounded)
+- Target-side idempotency ledger and atomic/replay-safe target commit protocol
+- Durable chunk/checkpoint integration with the worker queue
+- Schema DDL generation and canonical type conversion
+- Deterministic chunk checksums and deep reconciliation/repair
+- PostgreSQL CDC slot lifecycle, LSN capture/apply and retention backpressure
+- MySQL and Oracle adapters
+- UI, authentication/RBAC, external secret-provider implementations, telemetry and cutover
+- Production load, chaos, security and 100-GB/1-TB benchmark qualification
+
+Do not treat the PostgreSQL adapter primitives or task queue as a finished migration pipeline. The system must not report migration success until data commit, reconciliation and required cutover gates are implemented and tested.
 
 ## Next implementation sequence
 
-1. Wire metadata migrations, CI, settings and secret-provider boundary.
-2. Implement PostgreSQL source/target adapters and capability preflight.
-3. Implement exported snapshot coordination and bounded key-range readers.
-4. Implement streaming COPY and durable chunk recovery.
-5. Implement deterministic reconciliation and failure-injection suite.
-6. Add PostgreSQL CDC only after snapshot correctness gates pass.
-7. Add MySQL and Oracle adapters based on the same contracts.
+1. Complete the PostgreSQL-to-PostgreSQL vertical slice: bounded key-range partitioning, snapshot worker pool, target DDL and COPY, target-side idempotency, durable chunk checkpoints and orchestration.
+2. Add deterministic count/checksum/deep-diff reconciliation and failure injection.
+3. Add PostgreSQL CDC only after snapshot correctness gates pass.
+4. Add the management API and UI against stable migration/run/task contracts.
+5. Add MySQL and Oracle adapters based on the same source/target contracts.
+6. Complete security, observability, cutover/rollback and scale qualification.
 
 See [implementation roadmap](docs/IMPLEMENTATION_ROADMAP.md) for exit criteria.
