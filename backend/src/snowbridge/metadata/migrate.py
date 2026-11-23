@@ -7,6 +7,21 @@ from pathlib import Path
 
 import psycopg
 
+from snowbridge.config import Settings
+
+
+def resolve_dsn(explicit_dsn: str | None) -> str:
+    """Prefer --dsn; otherwise use the same environment/.env settings as the app."""
+    if explicit_dsn and explicit_dsn.strip():
+        return explicit_dsn.strip()
+    configured = Settings.from_env().metadata_database_url
+    if configured and configured.strip():
+        return configured.strip()
+    raise ValueError(
+        "metadata DSN is missing; set SNOWBRIDGE_METADATA_DATABASE_URL "
+        "in backend/.env or pass --dsn"
+    )
+
 
 def apply_migrations(dsn: str, directory: Path) -> list[str]:
     applied_now: list[str] = []
@@ -43,11 +58,18 @@ def apply_migrations(dsn: str, directory: Path) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Apply Snowbridge metadata SQL migrations")
-    parser.add_argument("--dsn", required=True)
+    parser.add_argument(
+        "--dsn",
+        help="metadata PostgreSQL DSN (defaults to SNOWBRIDGE_METADATA_DATABASE_URL/.env)",
+    )
     parser.add_argument("--directory", type=Path,
                         default=Path(__file__).resolve().parents[3] / "sql")
     args = parser.parse_args()
-    for version in apply_migrations(args.dsn, args.directory):
+    try:
+        dsn = resolve_dsn(args.dsn)
+    except ValueError as exc:
+        parser.error(str(exc))
+    for version in apply_migrations(dsn, args.directory):
         print(f"applied {version}")
     print("metadata schema is up to date")
 
