@@ -11,6 +11,7 @@ from snowbridge.adapters.postgresql import (
     iter_integer_key_chunk_rows,
 )
 from snowbridge.snapshot import ExportedSnapshot
+from snowbridge.bulk_copy import copy_binary_integer_range
 
 
 DSN = os.getenv("SNOWBRIDGE_TEST_DATABASE_URL")
@@ -86,6 +87,34 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).format(sql.Identifier(self.schema)))
             bounds = integer_key_bounds(conn, self.schema, "empty_rows", "id")
         self.assertIsNone(bounds)
+
+    def test_binary_copy_transfers_in_fixed_size_blocks(self):
+        adapter = PostgresAdapter(PostgresEndpoint(DSN))
+        with adapter.connect() as target:
+            target.execute(sql.SQL(
+                "CREATE TABLE {}.binary_target (id bigint PRIMARY KEY, value text)"
+            ).format(sql.Identifier(self.schema)))
+            with adapter.connect() as source:
+                result = copy_binary_integer_range(
+                    source,
+                    target,
+                    source_schema=self.schema,
+                    source_table="source_rows",
+                    target_schema=self.schema,
+                    target_table="binary_target",
+                    columns=("id", "value"),
+                    key_column="id",
+                    lower_bound=1,
+                    upper_bound=2,
+                    upper_inclusive=True,
+                    block_bytes=8,
+                )
+            rows = target.execute(sql.SQL(
+                "SELECT id, value FROM {}.binary_target ORDER BY id"
+            ).format(sql.Identifier(self.schema))).fetchall()
+            self.assertEqual(result.rows, 2)
+            self.assertGreater(result.bytes_transferred, 0)
+            self.assertEqual(rows, [(1, "one"), (2, "two")])
 
     def test_copy_from_stdin_streams_rows(self):
         adapter = PostgresAdapter(PostgresEndpoint(DSN))
