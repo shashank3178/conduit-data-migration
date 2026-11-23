@@ -12,6 +12,7 @@ from psycopg import sql
 from snowbridge.adapters.postgresql import PostgresAdapter, PostgresEndpoint
 from snowbridge.contracts import ChunkSpec
 from snowbridge.snapshot_workers import iter_snapshot_chunks
+from snowbridge.postgresql_snapshot import integer_key_chunk_factory, iter_integer_chunk_rows
 
 
 DSN = os.getenv("SNOWBRIDGE_TEST_DATABASE_URL")
@@ -87,6 +88,23 @@ class SnapshotWorkerIntegrationTests(unittest.TestCase):
         self.assertEqual(writer_errors, [])
         self.assertEqual(len(results), 2)
         self.assertEqual({value for _, value in results}, {2})
+
+    def test_integer_chunks_are_planned_and_read_inside_shared_snapshot(self):
+        factory = integer_key_chunk_factory(
+            self.adapter, self.schema, "source_rows", "id",
+            partitions=2, max_rows=1, max_bytes=1024,
+        )
+        results = list(iter_snapshot_chunks(
+            self.adapter,
+            factory,
+            lambda conn, chunk: [
+                row[0] for row in iter_integer_chunk_rows(conn, chunk, page_size=1)
+            ],
+            worker_count=2,
+            max_in_flight=2,
+        ))
+        migrated_ids = sorted(value for _, rows in results for value in rows)
+        self.assertEqual(migrated_ids, [1, 2])
 
     def test_invalid_worker_window_is_rejected_before_connecting(self):
         with self.assertRaises(ValueError):
