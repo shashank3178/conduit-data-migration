@@ -82,11 +82,11 @@ def copy_binary_integer_range(
     with source_conn.cursor() as source_cursor:
         with source_cursor.copy(copy_out, (lower_bound, upper_bound)) as reader:
             with target_conn.cursor() as target_cursor:
-                with target_cursor.copy(copy_in) as writer:
-                    while True:
-                        block = reader.read(size=block_bytes)
-                        if not block:
-                            break
+                bounded_writer = LibpqWriter(
+                    target_cursor, flush_threshold=block_bytes
+                )
+                with target_cursor.copy(copy_in, writer=bounded_writer) as writer:
+                    for block in reader:
                         writer.write(block)
                         transferred += len(block)
                 rows = writer.rowcount
