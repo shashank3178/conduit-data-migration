@@ -19,18 +19,21 @@
 - [x] Composite-key keyset page reader
 - [x] Streaming COPY FROM STDIN writer primitive
 - [x] Versioned SQL migration runner with advisory lock and checksum drift detection
-- [x] Local PostgreSQL metadata service in Docker Compose
+- [x] Native local PostgreSQL metadata service (no Docker dependency for local development)
 - [x] CI applies metadata schema twice to check idempotent startup
+- [x] Durable task lease metadata: fencing token, heartbeat, expiry, attempt limit and retry scheduling
+- [x] PostgreSQL task claim/heartbeat/complete/fail operations using SKIP LOCKED and lease fencing
+- [x] Metadata migration CLI resolves its DSN from process environment or backend/.env
 
-**Not complete:** a coordinated parallel chunk scheduler, strict per-chunk byte budget/LOB streaming, target-side idempotency ledger, durable worker leases/checkpoint transactions, end-to-end source-to-target run service, schema DDL translator, and live database integration tests for snapshot consistency and crash recovery. The adapter primitives must not be treated as a finished migration pipeline.
+**Not complete:** a coordinated parallel chunk scheduler, strict per-chunk byte budget/LOB streaming, target-side idempotency ledger, atomic target-commit/checkpoint protocol, end-to-end source-to-target run service, schema DDL translator, API/UI integration, and production-grade crash-recovery tests. The adapter and task-queue primitives must not be treated as a finished migration pipeline.
 
-## Milestone 1B — PostgreSQL → PostgreSQL snapshot execution (next)
+## Milestone 1B — PostgreSQL → PostgreSQL snapshot execution (in progress)
 
 1. Implement bounded key-range partitioning and snapshot worker pool.
 2. Implement explicit source/target transaction ownership and cancellation.
-3. Implement target staging/commit protocol and durable idempotency records.
+3. Implement target staging/commit protocol and target-side durable idempotency records.
 4. Persist chunk state and checkpoints only after confirmed target commit.
-5. Add a run orchestrator and recover expired leases.
+5. Connect the run orchestrator to the durable task queue and recover expired leases.
 6. Enforce byte budgets and LOB streaming, not only row limits.
 7. Add live integration tests with concurrent source writes, worker termination and commit/checkpoint fault injection.
 8. Add deterministic row/bucket reconciliation.
