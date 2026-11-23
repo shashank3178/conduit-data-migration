@@ -55,6 +55,7 @@ def record_chunk_checkpoint(
             """
             UPDATE migration_chunks
                SET state = 'succeeded',
+                   snapshot_id = %s,
                    rows_committed = %s,
                    bytes_committed = %s,
                    target_commit_token = %s,
@@ -62,7 +63,7 @@ def record_chunk_checkpoint(
              WHERE id = %s AND task_id = %s
             """,
             (
-                receipt.committed_rows, receipt.committed_bytes,
+                snapshot_id, receipt.committed_rows, receipt.committed_bytes,
                 str(receipt.commit_token), metadata_chunk_id, task_id,
             ),
         )

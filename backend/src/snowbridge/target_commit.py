@@ -61,6 +61,12 @@ def commit_chunk(
     if not chunk_id.strip() or not payload_digest.strip():
         raise ValueError("chunk_id and payload_digest are required")
 
+    # The wrapper must own the outer target transaction. A nested savepoint
+    # would return before the data+ledger transaction is durably committed.
+    status = getattr(getattr(conn, "info", None), "transaction_status", None)
+    if status is not None and getattr(status, "name", None) != "IDLE":
+        raise RuntimeError("commit_chunk requires an idle target connection")
+
     with conn.transaction():
         ensure_target_commit_ledger(conn)
         inserted = conn.execute(
