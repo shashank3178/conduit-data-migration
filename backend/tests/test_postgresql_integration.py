@@ -6,7 +6,10 @@ from uuid import uuid4
 import psycopg
 from psycopg import sql
 
-from snowbridge.adapters.postgresql import (\n    PostgresAdapter, PostgresEndpoint, copy_rows, integer_key_bounds,\n    iter_integer_key_chunk_rows,\n)
+from snowbridge.adapters.postgresql import (
+    PostgresAdapter, PostgresEndpoint, copy_rows, integer_key_bounds,
+    iter_integer_key_chunk_rows,
+)
 from snowbridge.snapshot import ExportedSnapshot
 
 
