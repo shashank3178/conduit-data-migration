@@ -40,6 +40,9 @@ Implemented in this iteration:
 - [x] Typed integer range metadata in ChunkSpec; readers compose SQL identifiers and bind range values
 - [x] Integration tests verify concurrent source writes remain invisible to all workers sharing the exported snapshot
 - [x] Integration tests exercise planning and reading multiple integer-key chunks
+- [x] PostgreSQL binary COPY pipeline transfers chunk data directly between database connections
+- [x] COPY data is relayed as binary blocks with a configurable libpq flush threshold (bounded writer backpressure)
+- [x] End-to-end integration test covers shared snapshot → parallel integer chunks → target binary COPY
 
 Remaining work:
 1. Add adaptive chunk subdivision so skewed/sparse key ranges obey actual per-chunk row limits.
@@ -47,7 +50,7 @@ Remaining work:
 3. Implement target staging/commit protocol and target-side durable idempotency records.
 4. Persist chunk state and checkpoints only after confirmed target commit.
 5. Connect the run orchestrator to the durable task queue and recover expired leases.
-6. Enforce byte budgets and LOB streaming, not only row limits.
+6. Enforce adaptive per-chunk row/byte budgets and LOB streaming; current binary COPY bounds transfer buffering but does not yet implement LOB-aware splitting.
 7. Add live integration tests with worker termination and commit/checkpoint fault injection.
 8. Add deterministic row/bucket reconciliation.
 
