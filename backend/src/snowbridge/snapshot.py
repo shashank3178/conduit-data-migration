@@ -18,7 +18,7 @@ class ExportedSnapshot(AbstractContextManager):
 
     def __enter__(self) -> SnapshotHandle:
         self.connection = self.adapter.connect()
-        self.connection.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        self.connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         snapshot_id = self.connection.execute("SELECT pg_export_snapshot()").fetchone()[0]
         self.handle = SnapshotHandle(
             snapshot_id=snapshot_id,
@@ -32,7 +32,7 @@ class ExportedSnapshot(AbstractContextManager):
         if self.handle is None:
             raise RuntimeError("snapshot has not been opened")
         from psycopg import sql
-        worker_connection.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        worker_connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         worker_connection.execute(
             sql.SQL("SET TRANSACTION SNAPSHOT {}").format(sql.Literal(self.handle.snapshot_id))
         )
