@@ -23,6 +23,7 @@ See:
 - [Metadata schema](backend/sql/0001_metadata_schema.sql)
 - [Implementation roadmap](docs/IMPLEMENTATION_ROADMAP.md)
 - [Operations, recovery and security](docs/OPERATIONS.md)
+- [Local development with native PostgreSQL](docs/LOCAL_DEVELOPMENT.md)
 - [Benchmark and test strategy](docs/TEST_STRATEGY.md)
 
 ## First vertical slice
@@ -40,6 +41,12 @@ CDC and heterogeneous adapters follow only after this slice is correct and recov
 ## Development status
 
 The Python package in `backend/src/snowbridge` defines executable domain contracts and state-transition guards. It is intentionally not an end-to-end migration engine yet. SQL is the initial metadata schema proposal and must be applied through a versioned migration system before deployment.
+
+## Local development
+
+Use a native PostgreSQL installation on your machine (for example, PostgreSQL managed through pgAdmin). Docker Compose is not part of the local development workflow. Follow [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) to create the local role/database, configure the DSN, and apply metadata migrations.
+
+The GitHub Actions CI job provisions its own disposable PostgreSQL service for automated integration checks; this does not require or use your local Docker setup.
 
 ## Local contract tests
 
