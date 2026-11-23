@@ -1,32 +1,17 @@
-# Ignores .env, .env.local, and any file/folder starting with .env
-.env*
-
-# Python / Backend
+# Local environment
+.env
+.env.*
+!.env.example
 .venv/
-env/
-ENV/
+venv/
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
-.ruff_cache/
-*.egg-info/
+*.py[cod]
+node_modules/
+.next/
 dist/
 build/
-
-# Node.js / Frontend
-node_modules/
-.npm
-.pnpm-store/
-
-# Next.js Build & Cache
-.next/
-out/
-build/
-.turbo/
-
-# Operating System Files
+coverage/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .DS_Store
-Thumbs.db
-Desktop.ini
