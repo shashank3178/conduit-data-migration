@@ -243,3 +243,69 @@ def integer_key_bounds(
             f"partition key {schema_name}.{table_name}.{key_column} is not an integral type"
         )
     return minimum, maximum
+
+
+
+def iter_integer_key_chunk_rows(
+    conn: Any,
+    schema_name: str,
+    table_name: str,
+    key_column: str,
+    lower_bound: int,
+    upper_bound: int,
+    *,
+    upper_inclusive: bool = False,
+    page_size: int = 10_000,
+) -> Iterator[tuple[Any, ...]]:
+    """Yield rows in one integer-key range using bounded keyset pages.
+
+    The range predicate and continuation key are bound values; all identifiers
+    are composed with psycopg.sql. The caller owns the connection transaction
+    and must import the run's exported snapshot before invoking this reader.
+    """
+    _require_driver()
+    if not schema_name or not table_name or not key_column:
+        raise ValueError("schema, table and key column are required")
+    if isinstance(lower_bound, bool) or isinstance(upper_bound, bool):
+        raise TypeError("integer key bounds cannot be booleans")
+    if not isinstance(lower_bound, int) or not isinstance(upper_bound, int):
+        raise TypeError("integer key bounds must be integers")
+    if upper_bound < lower_bound:
+        raise ValueError("upper bound must be >= lower bound")
+    if upper_bound == lower_bound and not upper_inclusive:
+        raise ValueError("empty half-open range is not valid")
+    if page_size <= 0:
+        raise ValueError("page_size must be positive")
+
+    key = sql.Identifier(key_column)
+    table = sql.Identifier(schema_name, table_name)
+    comparison = sql.SQL("<=") if upper_inclusive else sql.SQL("<")
+    last_key: int | None = None
+    while True:
+        range_predicate = sql.SQL("{} >= %s AND {} {} %s").format(
+            key, key, comparison
+        )
+        params: tuple[Any, ...] = (lower_bound, upper_bound)
+        if last_key is not None:
+            range_predicate = sql.SQL("({}) AND {} > %s").format(
+                range_predicate, key
+            )
+            params = (*params, last_key)
+        query = sql.SQL("SELECT * FROM {} WHERE {} ORDER BY {} LIMIT %s").format(
+            table, range_predicate, key
+        )
+        with conn.cursor() as cur:
+            cur.execute(query, (*params, page_size))
+            rows = cur.fetchall()
+            key_index = next(
+                (i for i, description in enumerate(cur.description)
+                 if description.name == key_column),
+                None,
+            )
+        if key_index is None:
+            raise RuntimeError(f"partition key {key_column!r} was not returned by SELECT")
+        if not rows:
+            return
+        for row in rows:
+            yield row
+        last_key = rows[-1][key_index]
