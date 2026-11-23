@@ -5,9 +5,10 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 from snowbridge.adapters.postgresql import (
-    PostgresAdapter,
-    integer_key_bounds,
-    iter_integer_key_chunk_rows,
+    PostgresAdapter, integer_key_bounds, iter_integer_key_chunk_rows, sql,
+)
+from snowbridge.adaptive_partitioning import (
+    ChunkMeasurement, adapt_integer_key_chunks,
 )
 from snowbridge.contracts import ChunkSpec, SnapshotHandle
 from snowbridge.partitioning import build_integer_key_chunks
@@ -23,30 +24,46 @@ def integer_key_chunk_factory(
     partitions: int = 4,
     max_rows: int = 100_000,
     max_bytes: int = 64 * 1024 * 1024,
+    adaptive: bool = True,
 ) -> Callable[[SnapshotHandle], tuple[ChunkSpec, ...]]:
-    """Create a chunk factory whose bounds are read inside the run snapshot."""
+    """Plan chunks and optionally measure/subdivide them inside the run snapshot."""
     if partitions <= 0 or max_rows <= 0 or max_bytes <= 0:
         raise ValueError("partition, row and byte limits must be positive")
 
     def factory(snapshot: SnapshotHandle) -> tuple[ChunkSpec, ...]:
-        with adapter.connect() as planning_connection:
-            ExportedSnapshot(adapter, handle=snapshot).import_into(planning_connection)
-            bounds = integer_key_bounds(
-                planning_connection, schema_name, table_name, key_column
+        with adapter.connect() as conn:
+            ExportedSnapshot(adapter, handle=snapshot).import_into(conn)
+            bounds = integer_key_bounds(conn, schema_name, table_name, key_column)
+            if bounds is None:
+                return ()
+            if not adaptive:
+                return build_integer_key_chunks(
+                    schema_name=schema_name, table_name=table_name,
+                    key_column=key_column, snapshot_id=snapshot.snapshot_id,
+                    minimum=bounds[0], maximum=bounds[1], partitions=partitions,
+                    max_rows=max_rows, max_bytes=max_bytes,
+                )
+
+            def measure(key_range):
+                op = sql.SQL("<=") if key_range.upper_inclusive else sql.SQL("<")
+                query = sql.SQL(
+                    "SELECT count(*), COALESCE(sum(pg_column_size(t)), 0) "
+                    "FROM {table} AS t WHERE t.{key} >= %s AND t.{key} {op} %s"
+                ).format(
+                    table=sql.Identifier(schema_name, table_name),
+                    key=sql.Identifier(key_column), op=op,
+                )
+                rows, byte_estimate = conn.execute(
+                    query, (key_range.lower, key_range.upper)
+                ).fetchone()
+                return ChunkMeasurement(int(rows), int(byte_estimate))
+
+            return adapt_integer_key_chunks(
+                schema_name=schema_name, table_name=table_name,
+                key_column=key_column, snapshot_id=snapshot.snapshot_id,
+                minimum=bounds[0], maximum=bounds[1], partitions=partitions,
+                max_rows=max_rows, max_bytes=max_bytes, measure=measure,
             )
-        if bounds is None:
-            return ()
-        return build_integer_key_chunks(
-            schema_name=schema_name,
-            table_name=table_name,
-            key_column=key_column,
-            snapshot_id=snapshot.snapshot_id,
-            minimum=bounds[0],
-            maximum=bounds[1],
-            partitions=partitions,
-            max_rows=max_rows,
-            max_bytes=max_bytes,
-        )
 
     return factory
 
@@ -71,12 +88,6 @@ def iter_integer_chunk_rows(
     if not isinstance(upper_inclusive, bool):
         raise ValueError("integer chunk has an invalid upper-bound mode")
     yield from iter_integer_key_chunk_rows(
-        conn,
-        chunk.schema_name,
-        chunk.table_name,
-        key_column,
-        lower,
-        upper,
-        upper_inclusive=upper_inclusive,
-        page_size=page_size,
+        conn, chunk.schema_name, chunk.table_name, key_column, lower, upper,
+        upper_inclusive=upper_inclusive, page_size=page_size,
     )
