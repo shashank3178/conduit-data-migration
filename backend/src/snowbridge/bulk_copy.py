@@ -89,7 +89,7 @@ def copy_binary_integer_range(
                     for block in reader:
                         writer.write(block)
                         transferred += len(block)
-                rows = writer.rowcount
+                rows = target_cursor.rowcount
     if rows < 0:
         raise RuntimeError("PostgreSQL did not report the binary COPY row count")
     return BinaryCopyResult(rows=rows, bytes_transferred=transferred)
