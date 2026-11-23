@@ -1,24 +1,64 @@
-# Conduit Data Migration — V2
+# Snowbridge — Enterprise Database Migration Platform
 
-V2 is a clean rebuild of Conduit. It is intentionally developed on the `v2/rebuild` branch and is not intended to be merged into `main`.
+Snowbridge is a clean-room V2 database migration platform. Development happens on `v2/rebuild`; this branch is deliberately independent of the V1 application on `main`.
 
-## Branch isolation
+> **Status:** Architecture and contract foundation. The first PostgreSQL-to-PostgreSQL snapshot vertical slice is the next implementation milestone. This repository does not yet claim production-ready migration execution, CDC, or reconciliation.
 
-- `main` remains the V1 application and is the source of truth for V1.
-- `v2/rebuild` is the independent V2 development line.
-- V2 changes must stay on V2 branches. Do not open pull requests targeting `main`.
-- V1 source, migration engines, and validation code are not carried forward into the V2 working tree.
+## Branch and product boundaries
 
-## Current state
+- Product name: **Snowbridge**.
+- `main` remains the historical V1 Conduit application.
+- `v2/rebuild` is the Snowbridge V2 line. Do not merge V2 into `main` or open PRs targeting `main`.
+- The GitHub repository slug remains `conduit-data-migration` for continuity; the product/application identity is Snowbridge.
+- No V1 runtime code or migration implementation is reused by Snowbridge.
 
-The V2 branch has been reset to a minimal design baseline. No V1 migration engine or V1 validation implementation is present here yet. V2 implementation starts from a new architecture; see [V2_DESIGN.md](V2_DESIGN.md).
+## Architecture
 
-## Development
+Snowbridge separates the management plane (projects, connections, plans, policy) from the data plane (snapshot extraction, CDC, bulk load, reconciliation). Database-specific behavior lives behind source and target adapter contracts. Durable task leases and checkpoints make work restartable; bounded streaming and backpressure keep memory independent of total table size.
 
-Clone and switch explicitly to V2:
+See:
+- [Architecture overview](docs/architecture/README.md)
+- [Architecture decision records](docs/adr/)
+- [Domain and adapter contracts](docs/contracts/README.md)
+- [Metadata schema](backend/sql/0001_metadata_schema.sql)
+- [Implementation roadmap](docs/IMPLEMENTATION_ROADMAP.md)
+- [Operations, recovery and security](docs/OPERATIONS.md)
+- [Benchmark and test strategy](docs/TEST_STRATEGY.md)
+
+## First vertical slice
+
+PostgreSQL-to-PostgreSQL snapshot only:
+1. Secure connection references and capability preflight.
+2. Schema discovery and conservative DDL planning.
+3. A consistent source snapshot shared by bounded parallel readers.
+4. Streaming extraction and PostgreSQL `COPY FROM STDIN` target loading.
+5. Durable task/chunk checkpoints committed only after target commit.
+6. Initial reconciliation and restart/failure-injection tests.
+
+CDC and heterogeneous adapters follow only after this slice is correct and recoverable.
+
+## Development status
+
+The Python package in `backend/src/snowbridge` defines executable domain contracts and state-transition guards. It is intentionally not an end-to-end migration engine yet. SQL is the initial metadata schema proposal and must be applied through a versioned migration system before deployment.
+
+## Local contract tests
+
+Requires Python 3.11+.
 
 ```bash
-git clone https://github.com/shashank3178/conduit-data-migration.git
-cd conduit-data-migration
-git switch v2/rebuild
+cd backend
+python -m unittest discover -s tests -v
 ```
+
+## Non-goals
+
+- No table-size-proportional in-memory buffering.
+- No OFFSET-based large-table pagination.
+- No silent lossy type conversion or skipped row errors.
+- No claim of distributed exactly-once delivery across unrelated databases.
+- No Kafka, Redis, Kubernetes, or workflow engine dependency until measured requirements justify the operational cost.
+- No production readiness claim until integration, recovery, security, and scale gates pass.
+
+## License and security
+
+Do not commit credentials, connection strings containing secrets, customer data, or production dumps. Credentials are represented by opaque secret references; resolve them only at runtime through a secret-provider boundary.
