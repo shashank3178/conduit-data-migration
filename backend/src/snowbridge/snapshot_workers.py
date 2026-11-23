@@ -10,7 +10,7 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from typing import Callable, Iterable, Iterator, TypeVar
 
 from snowbridge.adapters.postgresql import PostgresAdapter
-from snowbridge.contracts import ChunkSpec
+from snowbridge.contracts import ChunkSpec, SnapshotHandle
 from snowbridge.snapshot import ExportedSnapshot
 
 T = TypeVar("T")
@@ -18,7 +18,7 @@ T = TypeVar("T")
 
 def iter_snapshot_chunks(
     adapter: PostgresAdapter,
-    chunks: Iterable[ChunkSpec],
+    chunk_factory: Callable[[SnapshotHandle], Iterable[ChunkSpec]],
     handler: Callable[[object, ChunkSpec], T],
     *,
     worker_count: int = 4,
@@ -38,11 +38,13 @@ def iter_snapshot_chunks(
     if window < worker_count or window <= 0:
         raise ValueError("max_in_flight must be >= worker_count")
 
-    source = iter(chunks)
     exhausted = False
     pending: dict[Future[T], ChunkSpec] = {}
 
     with ExportedSnapshot(adapter) as snapshot:
+        # Build ranges only after the MVCC snapshot exists. The factory may
+        # import this snapshot on a planning connection to read MIN/MAX bounds.
+        source = iter(chunk_factory(snapshot))
         def execute(chunk: ChunkSpec) -> T:
             if chunk.snapshot_id != snapshot.snapshot_id:
                 raise ValueError(
