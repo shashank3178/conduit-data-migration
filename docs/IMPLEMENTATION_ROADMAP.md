@@ -29,7 +29,15 @@
 
 ## Milestone 1B — PostgreSQL → PostgreSQL snapshot execution (in progress)
 
-1. Implement bounded key-range partitioning and snapshot worker pool.
+Implemented in this iteration:
+- [x] Deterministic integer-key range planner with non-overlapping half-open ranges and an inclusive final range
+- [x] Stable chunk specifications with bound values and safely quoted key identifiers
+- [x] PostgreSQL integer MIN/MAX discovery intended to run inside the imported snapshot transaction
+- [x] Unit coverage for negative, sparse-width, single-value and invalid range inputs
+- [x] PostgreSQL integration coverage for populated and empty integer-key tables
+
+Remaining work:
+1. Implement the snapshot worker pool and import every worker into the same exported snapshot.
 2. Implement explicit source/target transaction ownership and cancellation.
 3. Implement target staging/commit protocol and target-side durable idempotency records.
 4. Persist chunk state and checkpoints only after confirmed target commit.
