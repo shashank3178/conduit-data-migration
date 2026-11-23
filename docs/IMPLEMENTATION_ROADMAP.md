@@ -1,31 +1,43 @@
 # Snowbridge implementation roadmap
 
-## Milestone 0 — Foundation (this commit)
+## Milestone 0 — Architecture and domain foundation (completed)
 
-- [x] Product identity and V2 branch boundary documented
+- [x] Product identity and V2 branch boundary
 - [x] Architecture decision records
 - [x] Canonical domain and adapter contracts
 - [x] Initial metadata schema
-- [x] Contract tests for lifecycle/checkpoint invariants
-- [ ] CI and database migration tooling wired into repository
-- [ ] Secret-provider implementation and API skeleton
+- [x] Lifecycle/checkpoint contract tests
+- [x] CI for Python contracts
 
-## Milestone 1 — PostgreSQL → PostgreSQL snapshot vertical slice
+## Milestone 1A — PostgreSQL adapter and metadata bootstrap (implemented primitives)
 
-1. Connection registry and runtime secret resolution.
-2. PostgreSQL source/target adapters with version and privilege preflight.
-3. Streaming catalog discovery and canonical schema IR.
-4. Conservative DDL planner with explicit unsupported mappings.
-5. Exported snapshot coordinator and parallel snapshot import.
-6. Keyset/range chunk planner with row and byte ceilings.
-7. Streaming COPY FROM STDIN target writer.
-8. Atomic chunk commit and durable checkpoint recovery.
-9. Counts/bounds and canonical bucket reconciliation.
-10. Structured run events, throughput and resource telemetry.
+- [x] Psycopg 3 dependency and Snowbridge runtime settings
+- [x] PostgreSQL connectivity adapter
+- [x] Capability preflight for MVCC snapshots, exported snapshots, logical decoding configuration and COPY
+- [x] Catalog discovery for tables, columns, primary and unique keys
+- [x] Exported MVCC snapshot keeper and worker import primitive
+- [x] Composite-key keyset page reader
+- [x] Streaming COPY FROM STDIN writer primitive
+- [x] Versioned SQL migration runner with advisory lock and checksum drift detection
+- [x] Local PostgreSQL metadata service in Docker Compose
+- [x] CI applies metadata schema twice to check idempotent startup
 
-**Exit gates:** concurrent source writes do not create a fractured snapshot; worker/API restart recovers; target commit/checkpoint gap is replay-safe; no whole-table buffering; row/byte budgets are respected; data diff is empty; benchmark suite passes.
+**Not complete:** a coordinated parallel chunk scheduler, strict per-chunk byte budget/LOB streaming, target-side idempotency ledger, durable worker leases/checkpoint transactions, end-to-end source-to-target run service, schema DDL translator, and live database integration tests for snapshot consistency and crash recovery. The adapter primitives must not be treated as a finished migration pipeline.
 
-## Milestone 2 — CDC for PostgreSQL
+## Milestone 1B — PostgreSQL → PostgreSQL snapshot execution (next)
+
+1. Implement bounded key-range partitioning and snapshot worker pool.
+2. Implement explicit source/target transaction ownership and cancellation.
+3. Implement target staging/commit protocol and durable idempotency records.
+4. Persist chunk state and checkpoints only after confirmed target commit.
+5. Add a run orchestrator and recover expired leases.
+6. Enforce byte budgets and LOB streaming, not only row limits.
+7. Add live integration tests with concurrent source writes, worker termination and commit/checkpoint fault injection.
+8. Add deterministic row/bucket reconciliation.
+
+**Exit gates:** no fractured snapshot, no whole-table buffering, bounded bytes and connections, replay-safe target commit/checkpoint gap, no missing/extra/mutated rows, and restart without full-run restart.
+
+## Milestone 2 — PostgreSQL CDC
 
 Logical decoding capability preflight, publication/slot lifecycle, LSN checkpointing, transaction ordering, retention pressure controls, replay-safe target apply and DDL drift policy.
 

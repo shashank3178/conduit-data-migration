@@ -12,6 +12,22 @@ permissions:
 jobs:
   python-contracts:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: snowbridge_test
+          POSTGRES_USER: snowbridge
+          POSTGRES_PASSWORD: snowbridge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U snowbridge -d snowbridge_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      SNOWBRIDGE_TEST_DATABASE_URL: postgresql://snowbridge:snowbridge@localhost:5432/snowbridge_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,3 +39,8 @@ jobs:
       - name: Run domain contract tests
         working-directory: backend
         run: python -m unittest discover -s tests -v
+      - name: Apply metadata schema twice (idempotency check)
+        working-directory: backend
+        run: |
+          python -m snowbridge.metadata.migrate --dsn "$SNOWBRIDGE_TEST_DATABASE_URL"
+          python -m snowbridge.metadata.migrate --dsn "$SNOWBRIDGE_TEST_DATABASE_URL"

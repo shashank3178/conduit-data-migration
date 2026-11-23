@@ -23,6 +23,20 @@
 
 The management plane must never proxy bulk table contents. Workers connect directly to source and target through adapter APIs. Metadata stores control-plane state, not row payloads or high-frequency metric samples.
 
+## Implemented PostgreSQL primitives
+
+The initial adapter uses Psycopg 3 and provides:
+- connectivity and capability inspection;
+- catalog discovery for ordinary and partitioned tables, columns and primary/unique keys;
+- an exported repeatable-read snapshot keeper;
+- a worker snapshot-import operation;
+- a composite-key keyset page reader;
+- a streaming COPY FROM STDIN row writer.
+
+These are building blocks, not a complete run executor. The current keyset reader bounds rows per page but does not yet enforce a hard serialized-byte ceiling or stream LOB values independently. The snapshot keeper must remain open until every worker has imported the snapshot. The source read transaction must stay on the same imported snapshot for all pages.
+
+The metadata migration runner applies numbered SQL files under a PostgreSQL advisory transaction lock and records SHA-256 checksums. Editing an already-applied migration is rejected; create a new numbered migration instead.
+
 ## Core subsystems
 
 1. **Connection and secret boundary** — encrypted transport, secret references, least-privilege checks, connectivity and capability preflight.
@@ -43,12 +57,12 @@ A snapshot and CDC start position must be coordinated by the source adapter. Par
 
 The cross-database default is **at-least-once delivery with idempotent target application**. A target commit can succeed while metadata checkpoint persistence fails. The worker must safely replay that unit using a stable task/batch identity and a target-side idempotency strategy. Do not describe this as distributed exactly-once.
 
-A checkpoint is advanced only after the target transaction is confirmed committed and the checkpoint record is durably persisted. If the process cannot determine whether the target commit succeeded, it must replay safely or reconcile; it must not skip ahead.
+A checkpoint is advanced only after target commit confirmation and durable metadata persistence. Ambiguous outcomes must be replayed safely or reconciled, never skipped.
 
 ## Large database constraints
 
 - Stream rows; never fetch an entire table into Python memory.
-- Bound both rows and serialized bytes per chunk/write.
+- Bound both rows and serialized bytes per chunk.
 - Use keyset/range scans over suitable keys; do not use OFFSET for large tables.
 - Isolate very wide rows and LOBs from ordinary batches.
 - Apply backpressure based on source/target CPU, I/O, pool saturation, lock waits, memory, CDC lag and log-retention pressure.

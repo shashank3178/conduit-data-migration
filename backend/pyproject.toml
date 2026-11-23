@@ -4,10 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "snowbridge"
-version = "0.1.0"
-description = "Enterprise database migration platform contracts"
+version = "0.2.0"
+description = "Enterprise database migration platform"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "psycopg[binary]>=3.2,<4",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
