@@ -23,18 +23,9 @@ class OversizedRowError(ValueError):
 
 
 def adapt_integer_key_chunks(
-    *,
-    schema_name: str,
-    table_name: str,
-    key_column: str,
-    snapshot_id: str,
-    minimum: int,
-    maximum: int,
-    partitions: int,
-    max_rows: int,
-    max_bytes: int,
-    measure: Callable[[IntegerKeyRange], ChunkMeasurement],
-    max_depth: int = 64,
+    *, schema_name: str, table_name: str, key_column: str, snapshot_id: str,
+    minimum: int, maximum: int, partitions: int, max_rows: int, max_bytes: int,
+    measure: Callable[[IntegerKeyRange], ChunkMeasurement], max_depth: int = 64,
 ) -> tuple[ChunkSpec, ...]:
     """Recursively bisect ranges until measured row and byte budgets are met.
 
@@ -58,7 +49,8 @@ def adapt_integer_key_chunks(
                 max_rows, max_bytes, path,
             ))
             return
-        if bounds.lower == bounds.upper:
+        last_value = bounds.upper if bounds.upper_inclusive else bounds.upper - 1
+        if bounds.lower >= last_value:
             raise OversizedRowError(
                 f"{schema_name}.{table_name} key {bounds.lower} contains "
                 f"{measured.rows} row(s) / {measured.estimated_bytes} bytes; "
@@ -71,10 +63,13 @@ def adapt_integer_key_chunks(
                 f"for {schema_name}.{table_name} range "
                 f"[{bounds.lower}, {bounds.upper}]"
             )
-        midpoint = bounds.lower + (bounds.upper - bounds.lower) // 2
-        visit(IntegerKeyRange(bounds.lower, midpoint), depth + 1, path + "0")
-        visit(IntegerKeyRange(midpoint + 1, bounds.upper, bounds.upper_inclusive),
-              depth + 1, path + "1")
+        midpoint = bounds.lower + (last_value - bounds.lower) // 2
+        left = IntegerKeyRange(bounds.lower, midpoint, upper_inclusive=True)
+        visit(left, depth + 1, path + "0")
+        right_lower = midpoint + 1
+        if right_lower <= last_value:
+            visit(IntegerKeyRange(right_lower, bounds.upper,
+                                  bounds.upper_inclusive), depth + 1, path + "1")
 
     for chunk in initial:
         spec = chunk.range_spec
