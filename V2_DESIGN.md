@@ -35,6 +35,8 @@ Build a production-oriented, database-agnostic migration platform with bounded s
 - Initial metadata schema and additive durable-lease migration: `backend/sql/0001_metadata_schema.sql`, `backend/sql/0002_durable_task_leases.sql`
 - PostgreSQL connectivity, capability preflight, catalog discovery, exported-snapshot helper, integer key-bound discovery, range chunk reader and COPY primitive: `backend/src/snowbridge/adapters/postgresql.py`, `backend/src/snowbridge/snapshot.py`
 - Deterministic integer-key partition planning and typed chunk range metadata: `backend/src/snowbridge/partitioning.py`, `backend/src/snowbridge/contracts.py`
+- Snapshot-aware range planning and bounded parallel workers: `backend/src/snowbridge/postgresql_snapshot.py`, `backend/src/snowbridge/snapshot_workers.py`
+- Byte-block PostgreSQL binary COPY transfer with configurable target libpq flush threshold: `backend/src/snowbridge/bulk_copy.py`
 - Bounded parallel workers importing one shared MVCC snapshot, plus snapshot-aware range planning: `backend/src/snowbridge/snapshot_workers.py`, `backend/src/snowbridge/postgresql_snapshot.py`
 - Versioned, advisory-locked, checksum-verified metadata migration runner
 - PostgreSQL task queue with SKIP LOCKED claiming, lease fencing, heartbeats, bounded retries and terminal failure
@@ -48,7 +50,7 @@ The task queue is a metadata-plane primitive, not a complete worker runtime. A t
 
 - End-to-end PostgreSQL-to-PostgreSQL run service and management API
 - Graceful worker cancellation/shutdown and adaptive row/byte-bounded chunk subdivision
-- Strict byte-bounded row/LOB streaming (the existing keyset reader is row-bounded)
+- Adaptive per-chunk row/byte limits and LOB-aware streaming (binary COPY currently streams bounded libpq blocks)
 - Target-side idempotency ledger and atomic/replay-safe target commit protocol
 - Durable chunk/checkpoint integration with the worker queue
 - Schema DDL generation and canonical type conversion
