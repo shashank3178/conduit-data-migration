@@ -6,7 +6,7 @@ from uuid import uuid4
 import psycopg
 from psycopg import sql
 
-from snowbridge.adapters.postgresql import PostgresAdapter, PostgresEndpoint, copy_rows
+from snowbridge.adapters.postgresql import (\n    PostgresAdapter, PostgresEndpoint, copy_rows, integer_key_bounds,\n)
 from snowbridge.snapshot import ExportedSnapshot
 
 
@@ -54,6 +54,21 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                 ).fetchone()[0]
                 self.assertEqual(count, 2)
+
+    def test_integer_key_bounds_are_read_from_snapshot_connection(self):
+        adapter = PostgresAdapter(PostgresEndpoint(DSN))
+        with adapter.connect() as conn:
+            bounds = integer_key_bounds(conn, self.schema, "source_rows", "id")
+        self.assertEqual(bounds, (1, 2))
+
+    def test_empty_integer_key_returns_no_bounds(self):
+        adapter = PostgresAdapter(PostgresEndpoint(DSN))
+        with adapter.connect() as conn:
+            conn.execute(sql.SQL(
+                "CREATE TABLE {}.empty_rows (id bigint PRIMARY KEY)"
+            ).format(sql.Identifier(self.schema)))
+            bounds = integer_key_bounds(conn, self.schema, "empty_rows", "id")
+        self.assertIsNone(bounds)
 
     def test_copy_from_stdin_streams_rows(self):
         adapter = PostgresAdapter(PostgresEndpoint(DSN))
