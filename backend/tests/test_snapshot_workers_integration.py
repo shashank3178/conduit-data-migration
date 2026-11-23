@@ -13,6 +13,7 @@ from snowbridge.adapters.postgresql import PostgresAdapter, PostgresEndpoint
 from snowbridge.contracts import ChunkSpec
 from snowbridge.snapshot_workers import iter_snapshot_chunks
 from snowbridge.postgresql_snapshot import integer_key_chunk_factory, iter_integer_chunk_rows
+from snowbridge.bulk_copy import copy_binary_integer_range
 
 
 DSN = os.getenv("SNOWBRIDGE_TEST_DATABASE_URL")
@@ -30,7 +31,11 @@ class SnapshotWorkerIntegrationTests(unittest.TestCase):
             conn.execute(sql.SQL(
                 "INSERT INTO {}.source_rows VALUES (1, 'one'), (2, 'two')"
             ).format(sql.Identifier(self.schema)))
+            conn.execute(sql.SQL(
+                "CREATE TABLE {}.target_rows (id bigint PRIMARY KEY, value text)"
+            ).format(sql.Identifier(self.schema)))
         self.adapter = PostgresAdapter(PostgresEndpoint(DSN))
+        self.target_adapter = PostgresAdapter(PostgresEndpoint(DSN))
 
     def tearDown(self):
         with psycopg.connect(DSN, autocommit=True) as conn:
@@ -105,6 +110,39 @@ class SnapshotWorkerIntegrationTests(unittest.TestCase):
         ))
         migrated_ids = sorted(value for _, rows in results for value in rows)
         self.assertEqual(migrated_ids, [1, 2])
+
+    def test_postgresql_snapshot_chunks_copy_to_target_with_binary_streaming(self):
+        factory = integer_key_chunk_factory(
+            self.adapter, self.schema, "source_rows", "id", partitions=2,
+        )
+
+        def transfer(source_conn, chunk):
+            spec = chunk.range_spec
+            with self.target_adapter.connect() as target_conn:
+                return copy_binary_integer_range(
+                    source_conn,
+                    target_conn,
+                    source_schema=self.schema,
+                    source_table="source_rows",
+                    target_schema=self.schema,
+                    target_table="target_rows",
+                    columns=("id", "value"),
+                    key_column=spec["key_column"],
+                    lower_bound=spec["lower"],
+                    upper_bound=spec["upper"],
+                    upper_inclusive=spec["upper_inclusive"],
+                    block_bytes=16,
+                )
+
+        results = list(iter_snapshot_chunks(
+            self.adapter, factory, transfer, worker_count=2, max_in_flight=2,
+        ))
+        self.assertEqual(sum(result.rows for _, result in results), 2)
+        with self.target_adapter.connect() as conn:
+            rows = conn.execute(sql.SQL(
+                "SELECT id, value FROM {}.target_rows ORDER BY id"
+            ).format(sql.Identifier(self.schema))).fetchall()
+        self.assertEqual(rows, [(1, "one"), (2, "two")])
 
     def test_invalid_worker_window_is_rejected_before_connecting(self):
         with self.assertRaises(ValueError):
