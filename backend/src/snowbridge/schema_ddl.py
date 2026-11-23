@@ -46,37 +46,38 @@ class DDLPlan:
 
 def _type_sql(native_type: str):
     value = " ".join(native_type.strip().split())
-    for pattern, _ in _TYPE_PATTERNS:
-        match = pattern.fullmatch(value)
-        if match:
-            # Type text is reconstructed from an allowlisted grammar; no
-            # arbitrary catalog-provided type fragment reaches SQL execution.
-            groups = match.groups()
-            if len(groups) == 1 and groups[0] and groups[0].isdigit():
-                return sql.SQL("{}({})").format(sql.SQL(pattern.pattern.split("^")[1].split("|")[0]),
-                                                 sql.Literal(int(groups[0])))
-            if len(groups) == 2 and all(g and g.isdigit() for g in groups):
-                base = "numeric" if value.lower().startswith(("numeric", "decimal")) else "varchar"
-                if value.lower().startswith(("character varying", "varchar")):
-                    base = "varchar"
-                elif value.lower().startswith(("character(", "char(")):
-                    base = "char"
-                return sql.SQL("{}({},{})").format(
-                    sql.SQL(base), sql.Literal(int(groups[0])), sql.Literal(int(groups[1]))
-                )
-            # Exact simple type names are safe only after a full regex match.
-            if not groups:
-                return sql.SQL(value)
-            if value.lower().startswith(("timestamp", "time")):
-                return sql.SQL(value)
-            if value.lower().startswith("bit"):
-                base = "varbit" if value.lower().startswith("bit varying") else "bit"
-                return sql.SQL("{}({})").format(sql.SQL(base), sql.Literal(int(groups[0])))
+    lower = value.lower()
+    simple = {
+        "smallint", "integer", "bigint", "real", "double precision",
+        "boolean", "text", "bytea", "date", "uuid", "json", "jsonb",
+        "xml", "inet", "cidr", "macaddr", "money",
+        "timestamp with time zone", "timestamp without time zone",
+        "timestamp", "time with time zone", "time without time zone", "time",
+    }
+    if lower in simple:
+        return sql.SQL(lower)
+    match = re.fullmatch(r"(character varying|varchar|character|char)\((\d+)\)", lower)
+    if match:
+        base = "varchar" if match.group(1) in {"character varying", "varchar"} else "char"
+        return sql.SQL("{}({})").format(sql.SQL(base), sql.Literal(int(match.group(2))))
+    match = re.fullmatch(r"(numeric|decimal)\((\d+)(?:,\s*(\d+))?\)", lower)
+    if match:
+        precision = int(match.group(2))
+        if match.group(3) is None:
+            return sql.SQL("numeric({})").format(sql.Literal(precision))
+        return sql.SQL("numeric({}, {})").format(
+            sql.Literal(precision), sql.Literal(int(match.group(3)))
+        )
+    match = re.fullmatch(r"bit varying\((\d+)\)", lower)
+    if match:
+        return sql.SQL("varbit({})").format(sql.Literal(int(match.group(1))))
+    match = re.fullmatch(r"bit\((\d+)\)", lower)
+    if match:
+        return sql.SQL("bit({})").format(sql.Literal(int(match.group(1))))
     raise UnsupportedSchemaError(
         f"unsupported PostgreSQL type {native_type!r}; custom types, arrays and "
         "unrecognized type modifiers require an explicit mapping"
     )
-
 
 def _safe_default(expression: str) -> bool:
     value = expression.strip()
