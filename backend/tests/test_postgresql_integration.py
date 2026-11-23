@@ -6,7 +6,7 @@ from uuid import uuid4
 import psycopg
 from psycopg import sql
 
-from snowbridge.adapters.postgresql import (\n    PostgresAdapter, PostgresEndpoint, copy_rows, integer_key_bounds,\n)
+from snowbridge.adapters.postgresql import (\n    PostgresAdapter, PostgresEndpoint, copy_rows, integer_key_bounds,\n    iter_integer_key_chunk_rows,\n)
 from snowbridge.snapshot import ExportedSnapshot
 
 
@@ -60,6 +60,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with adapter.connect() as conn:
             bounds = integer_key_bounds(conn, self.schema, "source_rows", "id")
         self.assertEqual(bounds, (1, 2))
+
+    def test_integer_key_chunk_reader_uses_non_overlapping_ranges(self):
+        adapter = PostgresAdapter(PostgresEndpoint(DSN))
+        with adapter.connect() as conn:
+            first = list(iter_integer_key_chunk_rows(
+                conn, self.schema, "source_rows", "id", 1, 2,
+                upper_inclusive=False, page_size=1,
+            ))
+            second = list(iter_integer_key_chunk_rows(
+                conn, self.schema, "source_rows", "id", 2, 2,
+                upper_inclusive=True, page_size=1,
+            ))
+        self.assertEqual([row[0] for row in first], [1])
+        self.assertEqual([row[0] for row in second], [2])
 
     def test_empty_integer_key_returns_no_bounds(self):
         adapter = PostgresAdapter(PostgresEndpoint(DSN))
