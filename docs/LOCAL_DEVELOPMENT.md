@@ -18,10 +18,15 @@ SELECT version(), current_setting('port');
 
 ## 2. Create a dedicated role and metadata database
 
-In pgAdmin, connect to your local server as an administrator (often `postgres`), open **Tools → Query Tool**, and run the following. Replace the password with a strong local development password before executing:
+In pgAdmin, connect to your local server as an administrator (often `postgres`) and open **Tools → Query Tool**. Replace the password below with a strong local development password. Execute the role statement first on its own:
 
 ```sql
 CREATE ROLE snowbridge LOGIN PASSWORD 'REPLACE_WITH_A_STRONG_PASSWORD';
+```
+
+Then execute the database statement separately (PostgreSQL does not allow `CREATE DATABASE` inside a transaction block):
+
+```sql
 CREATE DATABASE snowbridge_metadata OWNER snowbridge;
 ```
 
