@@ -44,8 +44,27 @@ Implemented in this iteration:
 - [x] COPY data is relayed as binary blocks with a configurable libpq flush threshold (bounded writer backpressure)
 - [x] End-to-end integration test covers shared snapshot → parallel integer chunks → target binary COPY
 
+Additional implementation delivered:
+- [x] Adaptive integer-key range subdivision driven by exact COUNT(*) and SUM(pg_column_size(row)) measurements inside the imported MVCC snapshot.
+- [x] Recursive integer interval splitting with explicit depth guard and no OFFSET pagination.
+- [x] Single-key payloads that cannot be subdivided produce an actionable oversized-row / LOB-strategy error.
+- [x] PostgreSQL catalog discovery now captures default expressions, generated-column markers and identity-column modes.
+- [x] Conservative PostgreSQL target DDL planner for allowlisted built-in types, schemas, tables, nullability, identity columns and primary/unique constraints.
+- [x] Generated columns, partitioned tables and unsupported/custom types fail explicitly; unsafe default expressions are reported for review rather than executed.
+- [x] Unit tests cover adaptive range coverage, budget subdivision, oversized rows, DDL generation and unsupported-schema diagnostics.
+
 Remaining work:
-1. Add adaptive chunk subdivision so skewed/sparse key ranges obey actual per-chunk row limits.
+1. Add a row-adaptive strategy for tables without a suitable integer unique key; current parallel range planner still requires one integer key.
+2. Add LOB-aware row policy for indivisible oversized records and end-to-end tests proving block-bounded transfer for very large values.
+3. Add foreign-key dependency ordering, FK DDL, indexes, check constraints, collations, extensions and generated-column expression translation.
+4. Add serial/identity sequence synchronization and target schema-parity validation; CREATE TABLE IF NOT EXISTS alone does not prove an existing target is compatible.
+5. Implement target staging/commit protocol and target-side durable idempotency records.
+6. Persist chunk state and checkpoints only after confirmed target commit.
+7. Connect the run orchestrator to the durable task queue and recover expired leases.
+8. Add live integration tests with worker termination and commit/checkpoint fault injection.
+9. Add deterministic row/bucket reconciliation.
+
+
 2. Implement explicit source/target transaction ownership, cancellation and graceful worker shutdown.
 3. Implement target staging/commit protocol and target-side durable idempotency records.
 4. Persist chunk state and checkpoints only after confirmed target commit.
