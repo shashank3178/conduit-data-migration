@@ -7,10 +7,12 @@ from snowbridge.partitioning import IntegerKeyRange
 
 
 class AdaptivePartitioningTests(unittest.TestCase):
-    def test_splits_skewed_ranges_until_both_budgets_are_met(self):
-        def measure(r):
-            rows = sum(1 for key in range(r.lower, r.upper + 1 if r.upper_inclusive else r.upper)
-                       if key < 8)
+    def test_splits_skewed_ranges_without_gaps_or_overlaps(self):
+        keys = {0, 1, 2, 3, 4, 5, 6, 7, 8, 15}
+
+        def measure(bounds):
+            end = bounds.upper if bounds.upper_inclusive else bounds.upper - 1
+            rows = sum(bounds.lower <= key <= end for key in keys)
             return ChunkMeasurement(rows, rows * 100)
 
         chunks = adapt_integer_key_chunks(
@@ -18,16 +20,16 @@ class AdaptivePartitioningTests(unittest.TestCase):
             snapshot_id="s1", minimum=0, maximum=15, partitions=1,
             max_rows=2, max_bytes=200, measure=measure,
         )
-        self.assertTrue(chunks)
-        self.assertEqual(
-            sorted((c.range_spec["lower"], c.range_spec["upper"],
-                    c.range_spec["upper_inclusive"]) for c in chunks),
-            sorted((c.range_spec["lower"], c.range_spec["upper"],
-                    c.range_spec["upper_inclusive"]) for c in chunks),
-        )
-        self.assertTrue(all(measure(IntegerKeyRange(
-            c.range_spec["lower"], c.range_spec["upper"],
-            c.range_spec["upper_inclusive"])) .rows <= 2 for c in chunks))
+        migrated = []
+        for chunk in chunks:
+            spec = chunk.range_spec
+            end = spec["upper"] if spec["upper_inclusive"] else spec["upper"] - 1
+            migrated.extend(k for k in keys if spec["lower"] <= k <= end)
+            self.assertLessEqual(measure(IntegerKeyRange(
+                spec["lower"], spec["upper"], spec["upper_inclusive"]
+            )).rows, 2)
+        self.assertEqual(sorted(migrated), sorted(keys))
+        self.assertEqual(len(migrated), len(set(migrated)))
 
     def test_single_key_over_byte_budget_has_actionable_error(self):
         with self.assertRaisesRegex(OversizedRowError, "LOB-aware"):
