@@ -46,6 +46,23 @@ class PostgresAdapter:
         with self.connect() as conn:
             version_num = int(conn.execute("SHOW server_version_num").fetchone()[0])
             wal_level = conn.execute("SHOW wal_level").fetchone()[0]
+            role = conn.execute(
+                "SELECT rolsuper, rolreplication FROM pg_roles WHERE rolname = current_user"
+            ).fetchone()
+            can_replicate = bool(role and (role[0] or role[1]))
+            logical_ready = version_num >= 90400 and wal_level == "logical" and can_replicate
+            if version_num < 90400:
+                logical_status = CapabilityStatus.UNAVAILABLE
+                logical_reason = "Logical decoding requires PostgreSQL 9.4 or later."
+            elif wal_level != "logical":
+                logical_status = CapabilityStatus.REQUIRES_CONFIGURATION
+                logical_reason = f"wal_level is {wal_level}; logical decoding requires wal_level=logical."
+            elif not can_replicate:
+                logical_status = CapabilityStatus.REQUIRES_PERMISSION
+                logical_reason = "Current role needs REPLICATION or superuser privilege."
+            else:
+                logical_status = CapabilityStatus.AVAILABLE
+                logical_reason = "Logical decoding configuration and current-role privilege checks passed."
             return (
                 Capability("snapshot_repeatable_read", CapabilityStatus.AVAILABLE,
                            "PostgreSQL MVCC repeatable-read snapshots are available.",
@@ -56,17 +73,15 @@ class PostgresAdapter:
                            "pg_export_snapshot is available on supported PostgreSQL versions. "
                            "The exporting transaction must remain open until workers import it.",
                            min_version="9.2"),
-                Capability("logical_decoding",
-                           CapabilityStatus.AVAILABLE if wal_level == "logical"
-                           else CapabilityStatus.REQUIRES_CONFIGURATION,
-                           f"wal_level is {wal_level}; logical decoding requires wal_level=logical.",
-                           requirements=("wal_level=logical", "replication slot privileges")),
+                Capability("logical_decoding", logical_status, logical_reason,
+                           requirements=("wal_level=logical", "replication slot privileges"),
+                           permission_checks=("REPLICATION or superuser",)),
                 Capability("copy_from_stdin", CapabilityStatus.AVAILABLE,
                            "COPY FROM STDIN is supported by PostgreSQL.", min_version="8.0"),
             )
 
     def discover_schema(self, include_schemas: Sequence[str] | None = None) -> list[TableSchema]:
-        """Discover ordinary/partitioned tables and ordered columns/primary/unique keys."""
+        """Discover ordinary/partitioned tables and ordered columns/usable unique keys."""
         with self.connect() as conn:
             if include_schemas:
                 rows = conn.execute(
@@ -119,6 +134,14 @@ class PostgresAdapter:
                       AND (ix.indisprimary OR ix.indisunique)
                       AND ix.indpred IS NULL AND ix.indexprs IS NULL
                       AND k.ordinality <= ix.indnkeyatts
+                      AND (
+                        ix.indisprimary OR NOT EXISTS (
+                          SELECT 1
+                          FROM unnest(ix.indkey) WITH ORDINALITY nk(attnum, ordinality)
+                          JOIN pg_attribute na ON na.attrelid=t.oid AND na.attnum=nk.attnum
+                          WHERE nk.ordinality <= ix.indnkeyatts AND NOT na.attnotnull
+                        )
+                      )
                     GROUP BY i.relname, ix.indisprimary, ix.indisunique
                     ORDER BY ix.indisprimary DESC, i.relname
                     """, (schema_name, table_name)
@@ -140,7 +163,7 @@ class PostgresAdapter:
 def iter_keyset_rows(conn: Any, schema_name: str, table_name: str,
                      key_columns: Sequence[str], page_size: int,
                      start_after: Sequence[Any] | None = None) -> Iterator[tuple[Any, ...]]:
-    """Yield bounded keyset pages for a stable unique key, ordered by its columns.
+    """Yield bounded keyset pages for a stable, non-null unique key.
 
     The cursor description is used to find key positions; this does not assume
     primary-key columns are the first columns in physical table order.
