@@ -133,6 +133,7 @@ class ChunkSpec:
     parameters: tuple[Any, ...] = ()
     max_rows: int = 100_000
     max_bytes: int = 64 * 1024 * 1024
+    range_spec: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.max_rows <= 0 or self.max_bytes <= 0:
