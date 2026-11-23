@@ -53,6 +53,10 @@ class IntegerKeyRangeTests(unittest.TestCase):
         self.assertTrue(chunks[1].predicate.endswith("<= %s"))
         self.assertEqual(chunks[0].max_rows, 500)
         self.assertEqual(chunks[0].max_bytes, 4096)
+        self.assertEqual(chunks[0].range_spec, {
+            "kind": "integer", "key_column": 'order"id',
+            "lower": 1, "upper": 6, "upper_inclusive": False,
+        })
 
 
 if __name__ == "__main__":
