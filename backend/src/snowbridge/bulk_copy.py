@@ -82,7 +82,7 @@ def copy_binary_integer_range(
             with target_conn.cursor() as target_cursor:
                 with target_cursor.copy(copy_in) as writer:
                     while True:
-                        block = reader.read(block_bytes)
+                        block = reader.read(size=block_bytes)
                         if not block:
                             break
                         writer.write(block)
