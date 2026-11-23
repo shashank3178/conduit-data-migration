@@ -35,15 +35,20 @@ Implemented in this iteration:
 - [x] PostgreSQL integer MIN/MAX discovery intended to run inside the imported snapshot transaction
 - [x] Unit coverage for negative, sparse-width, single-value and invalid range inputs
 - [x] PostgreSQL integration coverage for populated and empty integer-key tables
+- [x] Bounded parallel snapshot worker pool with a bounded in-flight future window
+- [x] Snapshot-aware chunk factory: reads integer MIN/MAX bounds after importing the exported snapshot
+- [x] Typed integer range metadata in ChunkSpec; readers compose SQL identifiers and bind range values
+- [x] Integration tests verify concurrent source writes remain invisible to all workers sharing the exported snapshot
+- [x] Integration tests exercise planning and reading multiple integer-key chunks
 
 Remaining work:
-1. Implement the snapshot worker pool and import every worker into the same exported snapshot.
-2. Implement explicit source/target transaction ownership and cancellation.
+1. Add adaptive chunk subdivision so skewed/sparse key ranges obey actual per-chunk row limits.
+2. Implement explicit source/target transaction ownership, cancellation and graceful worker shutdown.
 3. Implement target staging/commit protocol and target-side durable idempotency records.
 4. Persist chunk state and checkpoints only after confirmed target commit.
 5. Connect the run orchestrator to the durable task queue and recover expired leases.
 6. Enforce byte budgets and LOB streaming, not only row limits.
-7. Add live integration tests with concurrent source writes, worker termination and commit/checkpoint fault injection.
+7. Add live integration tests with worker termination and commit/checkpoint fault injection.
 8. Add deterministic row/bucket reconciliation.
 
 **Exit gates:** no fractured snapshot, no whole-table buffering, bounded bytes and connections, replay-safe target commit/checkpoint gap, no missing/extra/mutated rows, and restart without full-run restart.
