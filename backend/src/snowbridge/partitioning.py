@@ -98,5 +98,12 @@ def build_integer_key_chunks(
             parameters=(key_range.lower, key_range.upper),
             max_rows=max_rows,
             max_bytes=max_bytes,
-            range_spec={\n                "kind": "integer",\n                "key_column": key_column,\n                "lower": key_range.lower,\n                "upper": key_range.upper,\n                "upper_inclusive": key_range.upper_inclusive,\n            },\n        ))
+            range_spec={
+                "kind": "integer",
+                "key_column": key_column,
+                "lower": key_range.lower,
+                "upper": key_range.upper,
+                "upper_inclusive": key_range.upper_inclusive,
+            },
+        ))
     return tuple(chunks)
