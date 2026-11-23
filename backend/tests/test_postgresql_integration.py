@@ -40,12 +40,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         adapter = PostgresAdapter(PostgresEndpoint(DSN))
         with ExportedSnapshot(adapter) as snapshot:
             with adapter.connect() as worker:
-                # Import must be the first transaction-level operation on worker.
-                from psycopg import sql as pg_sql
-                worker.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
-                worker.execute(pg_sql.SQL("SET TRANSACTION SNAPSHOT {}").format(
-                    pg_sql.Literal(snapshot.snapshot_id)
-                ))
+                ExportedSnapshot(adapter, handle=snapshot).import_into(worker)
                 with adapter.connect() as writer:
                     writer.execute(
                         sql.SQL("INSERT INTO {}.source_rows VALUES (3, 'three')").format(
