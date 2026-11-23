@@ -110,11 +110,14 @@ class PostgresAdapter:
                     SELECT a.attname, a.attnum, format_type(a.atttypid,a.atttypmod),
                            NOT a.attnotnull,
                            CASE WHEN t.typname = 'timestamptz' THEN true
-                                WHEN t.typname = 'timestamp' THEN false ELSE NULL END
+                                WHEN t.typname = 'timestamp' THEN false ELSE NULL END,
+                           pg_get_expr(ad.adbin, ad.adrelid),
+                           NULLIF(a.attgenerated, ''), NULLIF(a.attidentity, '')
                     FROM pg_attribute a
                     JOIN pg_class c ON c.oid=a.attrelid
                     JOIN pg_namespace n ON n.oid=c.relnamespace
                     JOIN pg_type t ON t.oid=a.atttypid
+                    LEFT JOIN pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum
                     WHERE n.nspname=%s AND c.relname=%s
                       AND a.attnum > 0 AND NOT a.attisdropped
                     ORDER BY a.attnum
@@ -148,7 +151,9 @@ class PostgresAdapter:
                 ).fetchall()
                 columns = tuple(
                     Column(name=c[0], ordinal=int(c[1]), native_type=c[2],
-                           nullable=bool(c[3]), timezone_aware=c[4])
+                           nullable=bool(c[3]), timezone_aware=c[4],
+                           default_expression=c[5], generated_kind=c[6] or None,
+                           identity_kind=c[7] or None)
                     for c in cols
                 )
                 keys = tuple(Key(name=k[0], columns=tuple(k[3]),
