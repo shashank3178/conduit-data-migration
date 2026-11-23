@@ -56,18 +56,22 @@ The backend loads `backend/.env` automatically through python-dotenv when `Setti
 ```powershell
 cd backend
 python -m pip install -e .
+python -m snowbridge.metadata.migrate
+```
+
+The migration command reads `SNOWBRIDGE_METADATA_DATABASE_URL` from the process environment or `backend/.env`. You can still override it explicitly when needed:
+
+```powershell
 python -m snowbridge.metadata.migrate --dsn "postgresql://snowbridge:YOUR_PASSWORD@localhost:5432/snowbridge_metadata"
 ```
 
-The migration command takes an explicit DSN and does not currently read the DSN from Settings automatically; use the same value you put in `backend/.env`. (Application runtime configuration does load the file.)
-
-Running the migration command again is safe: applied migration files are checksum-verified and skipped. Never edit an applied migration; add a new numbered SQL migration.
+The migration runner applies numbered SQL files in `backend/sql` in order. Applied files are checksum-verified and skipped. Never edit an applied migration; add a new numbered SQL migration instead. Migration `0002_durable_task_leases.sql` adds worker lease fencing and retry scheduling to the metadata task table.
 
 ## 5. Verify
 
-Refresh `snowbridge_metadata` in pgAdmin. Under **Schemas → public → Tables**, verify the metadata tables from `backend/sql/0001_metadata_schema.sql` and the `snowbridge_schema_migrations` ledger.
+Refresh `snowbridge_metadata` in pgAdmin. Under **Schemas → public → Tables**, verify the metadata tables from `backend/sql/0001_metadata_schema.sql`, the lease columns from migration 0002, and the `snowbridge_schema_migrations` ledger.
 
-Run contract tests:
+Run unit/contract tests:
 
 ```powershell
 python -m unittest discover -s tests -v
@@ -75,7 +79,7 @@ python -m unittest discover -s tests -v
 
 ## 6. Integration-test database safety
 
-The PostgreSQL adapter integration tests create and drop test schemas. Point `SNOWBRIDGE_TEST_DATABASE_URL` only at a disposable test database, never your metadata database or a source/target database containing data you need.
+The PostgreSQL adapter and task-queue integration tests create and drop temporary schemas. Point `SNOWBRIDGE_TEST_DATABASE_URL` only at a disposable test database, never your metadata database or a source/target database containing data you need.
 
 Create a separate `snowbridge_test` database in pgAdmin and assign ownership to the test role. Then:
 
@@ -84,6 +88,8 @@ $env:SNOWBRIDGE_TEST_DATABASE_URL = "postgresql://snowbridge:YOUR_PASSWORD@local
 python -m unittest discover -s tests -v
 ```
 
+Without `SNOWBRIDGE_TEST_DATABASE_URL`, integration tests are intentionally skipped; unit tests still run.
+
 ## Troubleshooting
 
 - **Connection refused:** start the PostgreSQL Windows service and confirm host/port.
@@ -91,3 +97,4 @@ python -m unittest discover -s tests -v
 - **Database does not exist:** create `snowbridge_metadata` and check the DSN spelling.
 - **Permission denied:** make `snowbridge` the owner of `snowbridge_metadata`; avoid granting superuser.
 - **Port differs:** use the value returned by `current_setting('port')`.
+- **Missing metadata DSN:** confirm `backend/.env` exists and contains `SNOWBRIDGE_METADATA_DATABASE_URL`, or pass `--dsn`.
