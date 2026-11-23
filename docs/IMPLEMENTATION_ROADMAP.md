@@ -94,3 +94,23 @@ Deep PK diff/repair, durable DLQ, cutover gate, rollback strategy, multi-tenant 
 ## Pairing sequence
 
 PostgreSQL→PostgreSQL; MySQL→PostgreSQL; PostgreSQL→MySQL; MySQL→MySQL; Oracle→PostgreSQL; PostgreSQL→Oracle; then additional pairs based on customer demand. Implement adapters and capabilities, not a separate engine per pair.
+
+## Phase 2 delivery update — target commit recovery foundation
+
+Implemented in the current iteration:
+- Target-local `snowbridge_internal.chunk_commits` ledger written in the same target transaction as each chunk's data.
+- Stable chunk identity + immutable plan digest guard; replay with matching identity returns the original commit receipt and does not reapply data.
+- Conflicting reuse of a chunk identity with a different digest is rejected.
+- Metadata checkpoint writer persists target commit token, row count and byte count after target commit confirmation.
+- Ordered chunk execution helper enforces target commit → metadata checkpoint → fenced task acknowledgement.
+- Keyless-table fallback creates one deterministic whole-table chunk; binary COPY streams fixed-size blocks, so memory remains bounded. Restart granularity is the whole table, not an individual row range.
+
+Still required before Phase 2 can be declared complete:
+- Wire the new chunk execution protocol into a complete run service and worker lifecycle.
+- Add deterministic composite-key chunking and resumable chunking for tables without a suitable integer key; the whole-table fallback restarts a failed table from its beginning.
+- Add a real LOB policy and end-to-end tests with multi-GB values; current COPY block streaming bounds relay buffers but does not make a single oversized logical row independently restartable.
+- Complete DDL dependency discovery/creation (foreign keys, indexes, checks, collations, extensions), generated-column policy, identity/sequence synchronization, and existing-target schema parity validation.
+- Add live PostgreSQL fault-injection tests for crash after target commit/before metadata checkpoint, worker lease expiry during load, cancellation and shutdown.
+- Add deterministic bucket checksums and deep PK reconciliation with mismatch diagnostics.
+
+The target ledger closes the target-commit/metadata-checkpoint replay gap when callers use the new execution helper. It does not make the two databases one distributed transaction and does not prove content equivalence. Phase 2 remains in progress until the remaining exit gates above pass.

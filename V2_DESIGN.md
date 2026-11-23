@@ -72,3 +72,19 @@ Do not treat the PostgreSQL adapter primitives or task queue as a finished migra
 6. Complete security, observability, cutover/rollback and scale qualification.
 
 See [implementation roadmap](docs/IMPLEMENTATION_ROADMAP.md) for exit criteria.
+
+## Phase 2 recovery protocol update
+
+The current implementation includes a target-local chunk commit ledger
+(`snowbridge_internal.chunk_commits`), a metadata checkpoint writer, an ordered
+chunk execution helper, and a streaming whole-table fallback for keyless tables.
+These are primitives, not a complete worker runtime. The required order is
+target data + ledger commit, metadata checkpoint, then fenced task completion.
+A replay with the same stable chunk identity and plan digest returns the
+original target commit receipt.
+
+Phase 2 remains in progress: the full run service, composite-key chunking,
+resumable keyless-table strategy, complete DDL dependency/sequence support,
+target schema parity, fault-injection recovery tests and deterministic
+reconciliation are still outstanding. Do not report a migration as successful
+until the reconciliation and cutover gates are implemented.

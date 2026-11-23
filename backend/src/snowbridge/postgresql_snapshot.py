@@ -91,3 +91,28 @@ def iter_integer_chunk_rows(
         conn, chunk.schema_name, chunk.table_name, key_column, lower, upper,
         upper_inclusive=upper_inclusive, page_size=page_size,
     )
+
+def whole_table_chunk(
+    schema_name: str, table_name: str, snapshot_id: str,
+    *, max_rows: int = 100_000, max_bytes: int = 64 * 1024 * 1024,
+) -> ChunkSpec:
+    """Create a single streaming chunk for a table without a usable unique key.
+
+    The chunk is bounded in memory by the binary COPY block writer, not by a
+    resumable row range. A failed table transaction is replayed from its start.
+    """
+    if not schema_name or not table_name or not snapshot_id:
+        raise ValueError("schema, table and snapshot are required")
+    if max_rows <= 0 or max_bytes <= 0:
+        raise ValueError("chunk row and byte limits must be positive")
+    return ChunkSpec(
+        chunk_id=f"{schema_name}.{table_name}:whole-table",
+        schema_name=schema_name,
+        table_name=table_name,
+        snapshot_id=snapshot_id,
+        predicate="TRUE",
+        max_rows=max_rows,
+        max_bytes=max_bytes,
+        range_spec={"kind": "whole_table", "restart_granularity": "table"},
+    )
+

@@ -93,3 +93,57 @@ def copy_binary_integer_range(
     if rows < 0:
         raise RuntimeError("PostgreSQL did not report the binary COPY row count")
     return BinaryCopyResult(rows=rows, bytes_transferred=transferred)
+
+def copy_binary_table(
+    source_conn: Any,
+    target_conn: Any,
+    *,
+    source_schema: str,
+    source_table: str,
+    target_schema: str,
+    target_table: str,
+    columns: Sequence[str],
+    block_bytes: int = 1024 * 1024,
+) -> BinaryCopyResult:
+    """Stream a complete keyless table through bounded binary COPY blocks.
+
+    This is the safe fallback when no stable, non-null unique key exists.
+    It deliberately produces one atomic table chunk: it is resumable by replay
+    through the target commit ledger, but cannot resume halfway through a
+    table. The source connection must already be in the run's imported
+    repeatable-read snapshot; target transaction ownership belongs to caller.
+    """
+    _require_driver()
+    if not columns:
+        raise ValueError("binary COPY requires an explicit column list")
+    if not all((source_schema, source_table, target_schema, target_table)):
+        raise ValueError("source/target tables are required")
+    if block_bytes <= 0:
+        raise ValueError("block_bytes must be positive")
+
+    selected = sql.SQL(", ").join(sql.Identifier(column) for column in columns)
+    source = sql.Identifier(source_schema, source_table)
+    target = sql.Identifier(target_schema, target_table)
+    copy_out = sql.SQL("COPY (SELECT {} FROM {}) TO STDOUT (FORMAT BINARY)").format(
+        selected, source
+    )
+    copy_in = sql.SQL("COPY {} ({}) FROM STDIN (FORMAT BINARY)").format(
+        target, selected
+    )
+
+    transferred = 0
+    with source_conn.cursor() as source_cursor:
+        with source_cursor.copy(copy_out) as reader:
+            with target_conn.cursor() as target_cursor:
+                bounded_writer = LibpqWriter(
+                    target_cursor, flush_threshold=block_bytes
+                )
+                with target_cursor.copy(copy_in, writer=bounded_writer) as writer:
+                    for block in reader:
+                        writer.write(block)
+                        transferred += len(block)
+                rows = target_cursor.rowcount
+    if rows < 0:
+        raise RuntimeError("PostgreSQL did not report the binary COPY row count")
+    return BinaryCopyResult(rows=rows, bytes_transferred=transferred)
+
