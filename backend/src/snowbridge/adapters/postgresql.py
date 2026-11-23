@@ -214,3 +214,32 @@ def copy_rows(conn: Any, schema_name: str, table_name: str,
                 copy.write_row(row)
                 count += 1
     return count
+
+
+
+def integer_key_bounds(
+    conn: Any, schema_name: str, table_name: str, key_column: str,
+) -> tuple[int, int] | None:
+    """Read indexed integer-key bounds inside the caller's snapshot transaction.
+
+    This is a planning query, not a row-count estimate. Callers must first
+    establish/import the run's exported MVCC snapshot so bounds and subsequent
+    range reads observe the same source state.
+    """
+    _require_driver()
+    if not schema_name or not table_name or not key_column:
+        raise ValueError("schema, table and key column are required")
+    query = sql.SQL("SELECT min({key}), max({key}) FROM {table}").format(
+        key=sql.Identifier(key_column),
+        table=sql.Identifier(schema_name, table_name),
+    )
+    minimum, maximum = conn.execute(query).fetchone()
+    if minimum is None and maximum is None:
+        return None
+    if isinstance(minimum, bool) or isinstance(maximum, bool):
+        raise TypeError("partition key must have an integral PostgreSQL type")
+    if not isinstance(minimum, int) or not isinstance(maximum, int):
+        raise TypeError(
+            f"partition key {schema_name}.{table_name}.{key_column} is not an integral type"
+        )
+    return minimum, maximum
