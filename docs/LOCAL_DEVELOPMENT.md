@@ -1,84 +1,93 @@
 # Local development: native PostgreSQL
 
-Snowbridge's metadata database should run on your machine's PostgreSQL installation, not in a Docker container. pgAdmin is only the administration UI; the PostgreSQL server service must be running locally.
+Snowbridge uses your machine's native PostgreSQL server for its metadata database. pgAdmin is the administration UI; the PostgreSQL server service itself must be running.
 
 ## 1. Start and verify PostgreSQL
 
-In Windows Services, ensure the PostgreSQL service for your installed version is running. In pgAdmin, connect to your local server and confirm its port (commonly `5432`). You can verify from a terminal:
-
-```powershell
-pg_isready -h localhost -p 5432
-```
-
-If `pg_isready` is not on PATH, use pgAdmin's Query Tool to run:
+In Windows Services, ensure the PostgreSQL service for your installed version is running. In pgAdmin, connect to your local server and confirm its port (commonly `5432`). In Query Tool, run:
 
 ```sql
 SELECT version(), current_setting('port');
 ```
 
-## 2. Create a dedicated role and metadata database
+## 2. Create the Snowbridge login role and database
 
-In pgAdmin, connect to your local server as an administrator (often `postgres`) and open **Tools → Query Tool**. Replace the password below with a strong local development password. Execute the role statement first on its own:
+In pgAdmin, connect to your local PostgreSQL server as an administrator (often `postgres`). Open **Tools → Query Tool**.
 
-```sql
-CREATE ROLE snowbridge LOGIN PASSWORD 'REPLACE_WITH_A_STRONG_PASSWORD';
-```
-
-Then execute the database statement separately (PostgreSQL does not allow `CREATE DATABASE` inside a transaction block):
+First execute this statement on its own, replacing the password with a strong password you choose:
 
 ```sql
-CREATE DATABASE snowbridge_metadata OWNER snowbridge;
+CREATE ROLE snowbridge
+    WITH LOGIN
+    PASSWORD 'REPLACE_WITH_A_STRONG_PASSWORD';
 ```
 
-If you already created either object, do not run the corresponding CREATE statement again. Check **Login/Group Roles** and **Databases** in pgAdmin first. The dedicated role should own the metadata database; do not use the PostgreSQL superuser as the application's runtime identity.
+Then execute this as a separate query:
 
-## 3. Configure the backend connection
+```sql
+CREATE DATABASE snowbridge_metadata
+    OWNER snowbridge
+    ENCODING 'UTF8';
+```
 
-From PowerShell, in the same terminal used to run Snowbridge:
+**Important:** Run `CREATE DATABASE` separately; PostgreSQL does not permit it inside a transaction block. If the role or database already exists, do not re-run its CREATE statement. Check **Login/Group Roles** and **Databases** in pgAdmin first. Do not use the PostgreSQL superuser as the application's runtime identity.
+
+## 3. Create your private backend/.env
+
+From the repository root in PowerShell:
 
 ```powershell
-$env:SNOWBRIDGE_METADATA_DATABASE_URL = "postgresql://snowbridge:YOUR_PASSWORD@localhost:5432/snowbridge_metadata"
+Copy-Item backend/.env.example backend/.env
+notepad backend/.env
 ```
 
-Replace `YOUR_PASSWORD`. If the password contains URI-reserved characters (such as `@`, `:`, `/`, `#`, or `%`), URL-encode the password component. Do not commit the DSN or put real credentials in `.env.example`.
+Set the metadata DSN in `backend/.env`:
 
-Alternatively, copy `backend/.env.example` to a private local configuration file and load its values using your preferred environment-variable loader. The current package reads process environment variables; it does not automatically parse `.env` files.
+```dotenv
+SNOWBRIDGE_METADATA_DATABASE_URL=postgresql://snowbridge:YOUR_PASSWORD@localhost:5432/snowbridge_metadata
+```
 
-## 4. Install and apply metadata migrations
+Replace `YOUR_PASSWORD` with the role password you created. If it contains URI-reserved characters (for example `@`, `:`, `/`, `#`, or `%`), URL-encode the password component. Keep `backend/.env` private; the repository's root `.gitignore` excludes `.env` files. Commit only `.env.example`, which contains placeholders.
+
+The backend loads `backend/.env` automatically through python-dotenv when `Settings.from_env()` is called. Existing process environment variables take precedence, so CI/production configuration is not overridden by the file.
+
+## 4. Install dependencies and apply metadata migrations
 
 ```powershell
 cd backend
 python -m pip install -e .
-python -m snowbridge.metadata.migrate --dsn $env:SNOWBRIDGE_METADATA_DATABASE_URL
+python -m snowbridge.metadata.migrate --dsn "postgresql://snowbridge:YOUR_PASSWORD@localhost:5432/snowbridge_metadata"
 ```
 
-The migration runner creates/updates the Snowbridge migration ledger and applies numbered SQL files in `backend/sql`. Running it again is safe: already-applied files are checksum-verified and skipped. Never edit a migration after it has been applied; add a new numbered migration instead.
+The migration command takes an explicit DSN and does not currently read the DSN from Settings automatically; use the same value you put in `backend/.env`. (Application runtime configuration does load the file.)
 
-## 5. Verify in pgAdmin
+Running the migration command again is safe: applied migration files are checksum-verified and skipped. Never edit an applied migration; add a new numbered SQL migration.
 
-Refresh the `snowbridge_metadata` database in pgAdmin. Under **Schemas → public → Tables**, verify the metadata tables from `backend/sql/0001_metadata_schema.sql` and the `snowbridge_schema_migrations` ledger exist.
+## 5. Verify
 
-Then run contract tests:
+Refresh `snowbridge_metadata` in pgAdmin. Under **Schemas → public → Tables**, verify the metadata tables from `backend/sql/0001_metadata_schema.sql` and the `snowbridge_schema_migrations` ledger.
+
+Run contract tests:
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
 
-## 6. Integration test database safety
+## 6. Integration-test database safety
 
-The PostgreSQL adapter integration tests use `SNOWBRIDGE_TEST_DATABASE_URL` and create/drop test schemas. Point that variable only at a disposable local test database, never your metadata database or a source/target database containing data you need.
+The PostgreSQL adapter integration tests create and drop test schemas. Point `SNOWBRIDGE_TEST_DATABASE_URL` only at a disposable test database, never your metadata database or a source/target database containing data you need.
+
+Create a separate `snowbridge_test` database in pgAdmin and assign ownership to the test role. Then:
 
 ```powershell
 $env:SNOWBRIDGE_TEST_DATABASE_URL = "postgresql://snowbridge:YOUR_PASSWORD@localhost:5432/snowbridge_test"
 python -m unittest discover -s tests -v
 ```
 
-Create `snowbridge_test` separately in pgAdmin and assign ownership to the test role before running those tests. The metadata database and integration-test database should be separate.
-
 ## Troubleshooting
 
 - **Connection refused:** start the PostgreSQL Windows service and confirm host/port.
-- **Password authentication failed:** reset the role password in pgAdmin and update the DSN in the current PowerShell session.
-- **Database does not exist:** create `snowbridge_metadata` and ensure the DSN uses the exact name.
+- **Password authentication failed:** reset the role password in pgAdmin and update `backend/.env`.
+- **Database does not exist:** create `snowbridge_metadata` and check the DSN spelling.
 - **Permission denied:** make `snowbridge` the owner of `snowbridge_metadata`; avoid granting superuser.
-- **Port differs:** use the port shown by `SHOW port;` in the DSN.
+- **Port differs:** use the value returned by `current_setting('port')`.
