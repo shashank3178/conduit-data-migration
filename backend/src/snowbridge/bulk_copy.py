@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Sequence
 
+from psycopg.copy import LibpqWriter
+
 from snowbridge.adapters.postgresql import _require_driver, sql
 
 
