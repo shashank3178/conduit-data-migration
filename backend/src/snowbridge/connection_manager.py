@@ -40,7 +40,10 @@ class ConnectionManager:
                 port=spec.port or 3306,connect_timeout=spec.connect_timeout_seconds,
                 ssl_ca=secret.get("ssl_ca") if spec.tls_required else None,tls_required=spec.tls_required))
         from snowbridge.adapters.oracle import OracleAdapter,OracleEndpoint
-        return OracleAdapter(OracleEndpoint(spec.username,password,spec.database,spec.connect_timeout_seconds))
+        protocol='TCPS' if spec.tls_required else 'TCP'
+        dsn=(f'(DESCRIPTION=(ADDRESS=(PROTOCOL={protocol})(HOST={spec.host})(PORT={spec.port or 1521}))'
+             f'(CONNECT_DATA=(SERVICE_NAME={spec.database})))')
+        return OracleAdapter(OracleEndpoint(spec.username,password,dsn,spec.connect_timeout_seconds))
     def test_connection(self,spec:ConnectionSpec)->dict[str,Any]:
         adapter=self.create_adapter(spec)
         return {"connection_id":spec.connection_id,"engine":spec.engine,

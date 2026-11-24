@@ -62,12 +62,11 @@ class OracleAdapter:
                 str(self._query(conn,"SELECT SYS_CONTEXT('USERENV','CURRENT_SCHEMA') FROM dual")[0][0])]
             result=[]
             for owner in owners:
-                tables=self._query(conn,"""SELECT t.table_name,t.num_rows,t.blocks,t.avg_row_len,ts.block_size,
+                tables=self._query(conn,"""SELECT t.table_name,t.num_rows,t.avg_row_len,
                     t.partitioned,tc.comments FROM all_tables t LEFT JOIN all_tab_comments tc
-                    ON tc.owner=t.owner AND tc.table_name=t.table_name LEFT JOIN all_tablespaces ts
-                    ON ts.tablespace_name=t.tablespace_name
+                    ON tc.owner=t.owner AND tc.table_name=t.table_name
                     WHERE t.owner=:owner ORDER BY t.table_name""",{"owner":owner})
-                for table,num_rows,blocks,avg_len,block_size,partitioned,comment in tables:
+                for table,num_rows,avg_len,partitioned,comment in tables:
                     cols=self._query(conn,"""SELECT column_name,column_id,data_type,nullable,
                         data_precision,data_scale,char_length,data_length,data_default,
                         virtual_column,identity_column,collation FROM all_tab_cols
@@ -92,8 +91,7 @@ class OracleAdapter:
                         groups.setdefault(str(name),[]).append((int(pos),str(col))); kinds[str(name)]=str(kind)
                     keys=tuple(Key(n,tuple(c for _,c in sorted(cols)),kinds[n]=="P",True)
                         for n,cols in groups.items())
-                    size=int(blocks)*int(block_size) if blocks is not None and block_size is not None else (
-                        int(avg_len)*int(num_rows) if avg_len is not None and num_rows is not None else None)
+                    size=int(avg_len)*int(num_rows) if avg_len is not None and num_rows is not None else None
                     result.append(TableSchema(owner,str(table),columns,keys,
                         max(0,int(num_rows)) if num_rows is not None else None,
                         str(partitioned)=="YES",estimated_bytes=size,storage_engine="oracle",

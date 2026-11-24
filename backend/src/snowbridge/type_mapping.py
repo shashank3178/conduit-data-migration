@@ -11,7 +11,7 @@ def map_type(source_engine:str,target_engine:str,native_type:str,precision:int|N
              scale:int|None=None,length:int|None=None,timezone_aware:bool|None=None)->TypeMapping:
     src,dst=normalize_engine(source_engine),normalize_engine(target_engine)
     raw=" ".join(native_type.strip().lower().split())
-    base=re.sub(r"\(.*\)$","",raw).strip()
+    \n    modifier=re.search(r"\((\d+)(?:,\s*(\d+))?\)",raw)\n    if modifier:\n        if precision is None: precision=int(modifier.group(1))\n        if scale is None and modifier.group(2) is not None: scale=int(modifier.group(2))\n        if length is None and modifier.group(2) is None and any(t in raw for t in ("char","varchar","bit")): length=int(modifier.group(1))\n    base=re.sub(r"\(\d+(?:,\s*\d+)?\)","",raw).strip()
     unsigned="unsigned" in raw
     base=re.sub(r"\s+unsigned$","",base)
     if src==dst:return TypeMapping(native_type,native_type,MappingSafety.AUTOMATIC,"Preserve same-engine native type.")
