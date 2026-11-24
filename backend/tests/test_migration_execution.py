@@ -392,3 +392,62 @@ def test_copy_staging_writer_copies_then_merges_and_clears_stage():
     assert result == (2, 0, 0)
     assert destination.copy_context.rows == [(1, "one"), (2, "two")]
     assert len(destination.executed) == 4
+
+def test_parallel_writer_uses_independent_destination_and_metadata_session(monkeypatch):
+    run_id, progress_id = uuid4(), uuid4()
+    worker_run = SimpleNamespace(max_retries=0)
+    worker_progress = SimpleNamespace(retry_count=0)
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def get(self, model, _identifier):
+            return worker_run if model is execution.MigrationRun else worker_progress
+
+        def commit(self):
+            return None
+
+        def rollback(self):
+            return None
+
+    class FakeDestination:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    destination = FakeDestination()
+    monkeypatch.setattr(execution, "SessionLocal", FakeSession)
+    monkeypatch.setattr(execution, "_connect", lambda _record: destination)
+    monkeypatch.setattr(
+        execution,
+        "_write_with_isolation",
+        lambda *_args: (2, 0, 0, 0, []),
+    )
+
+    result = execution._write_parallel_batch(
+        run_id, progress_id, object(),
+        SimpleNamespace(destination_schema="public", destination_table="target"),
+        ["id"], {}, ["id"], ["id"],
+        [(1,), (2,)], [(1,), (2,)], "INSERT_ONLY",
+    )
+
+    assert result[:5] == (2, 0, 0, 0, [])
+    assert result[5] >= 0
+    assert destination.closed is True
+
+
+def test_migration_writer_count_is_bounded_and_invalid_values_fall_back(monkeypatch):
+    monkeypatch.setenv("CONDUIT_MIGRATION_WRITERS", "99")
+    assert execution._migration_writer_count() == 4
+
+    monkeypatch.setenv("CONDUIT_MIGRATION_WRITERS", "0")
+    assert execution._migration_writer_count() == 1
+
+    monkeypatch.setenv("CONDUIT_MIGRATION_WRITERS", "not-a-number")
+    assert execution._migration_writer_count() == 2
+
