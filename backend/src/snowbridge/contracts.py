@@ -96,6 +96,34 @@ class Key:
 
 
 @dataclass(frozen=True, slots=True)
+class Index:
+    name: str
+    columns: tuple[str, ...]
+    unique: bool = False
+    method: str | None = None
+    predicate: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ForeignKey:
+    name: str
+    columns: tuple[str, ...]
+    referenced_schema: str
+    referenced_table: str
+    referenced_columns: tuple[str, ...]
+    on_update: str | None = None
+    on_delete: str | None = None
+    validated: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class CheckConstraint:
+    name: str
+    expression: str
+    validated: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class TableSchema:
     schema_name: str
     table_name: str
@@ -103,6 +131,13 @@ class TableSchema:
     keys: tuple[Key, ...] = ()
     estimated_rows: int | None = None
     partitioned: bool = False
+    estimated_bytes: int | None = None
+    storage_engine: str | None = None
+    comment: str = ""
+    indexes: tuple[Index, ...] = ()
+    foreign_keys: tuple[ForeignKey, ...] = ()
+    checks: tuple[CheckConstraint, ...] = ()
+    object_kind: str = "table"
 
 
 @dataclass(frozen=True, slots=True)
