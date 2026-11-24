@@ -12,6 +12,30 @@ import os
 from psycopg import sql
 
 
+_BINARY_TYPE_NAMES = {
+    "smallint": "int2",
+    "integer": "int4",
+    "bigint": "int8",
+    "real": "float4",
+    "double precision": "float8",
+    "numeric": "numeric",
+    "decimal": "numeric",
+    "boolean": "bool",
+    "text": "text",
+    "character varying": "varchar",
+    "character": "bpchar",
+    "date": "date",
+    "timestamp without time zone": "timestamp",
+    "timestamp with time zone": "timestamptz",
+    "time without time zone": "time",
+    "time with time zone": "timetz",
+    "uuid": "uuid",
+    "json": "json",
+    "jsonb": "jsonb",
+    "bytea": "bytea",
+}
+
+
 def write_copy_batch(
     destination,
     table,
@@ -64,6 +88,21 @@ def write_copy_batch(
         sql.SQL(" (FORMAT BINARY)") if copy_format == "binary" else sql.SQL(""),
     )
     with destination.cursor().copy(copy_query) as copy:
+        if copy_format == "binary":
+            unsupported = [
+                column for column in destination_columns
+                if destination_column_types.get(column, "").lower() not in _BINARY_TYPE_NAMES
+            ]
+            if unsupported:
+                raise ValueError(
+                    "Binary COPY does not yet support destination column types for: "
+                    + ", ".join(unsupported)
+                    + ". Use CONDUIT_COPY_FORMAT=text."
+                )
+            copy.set_types([
+                _BINARY_TYPE_NAMES[destination_column_types[column].lower()]
+                for column in destination_columns
+            ])
         for row in adapted_rows:
             copy.write_row(row)
 
