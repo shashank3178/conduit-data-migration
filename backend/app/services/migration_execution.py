@@ -870,6 +870,9 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 source_columns = [
                     source_name for source_name, _ in pairs
                 ]
+                # Resolve primary-key positions once per table instead of
+                # performing a linear list lookup for every row in every batch.
+                source_pk_indexes = [source_columns.index(name) for name in source_pk]
 
                 destination_columns = [
                     destination_name for _, destination_name in pairs
@@ -937,7 +940,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     fetch_duration_ms = round((time.monotonic() - fetch_started) * 1000, 2)
                     if not batch:
                         break
-                    keys = [tuple(row[source_columns.index(name)] for name in source_pk) for row in batch]
+                    keys = [tuple(row[index] for index in source_pk_indexes) for row in batch]
                     write_started = time.monotonic()
                     checkpoint_start = list(last_key) if last_key is not None else None
                     for attempt in range(run.max_retries + 1):
