@@ -6,6 +6,7 @@ import math
 import os
 import sys
 import time
+from types import SimpleNamespace
 import uuid
 from datetime import UTC, date, datetime
 from datetime import time as datetime_time
@@ -896,6 +897,17 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
         try:
             source_record = db.get(DatabaseConnection, plan.source_connection_id)
             destination_record = db.get(DatabaseConnection, plan.destination_connection_id)
+            # Pass immutable connection settings to writer threads; SQLAlchemy
+            # ORM instances and their Session must never cross thread boundaries.
+            destination_writer_record = SimpleNamespace(
+                id=destination_record.id,
+                host=destination_record.host,
+                port=destination_record.port,
+                database=destination_record.database,
+                username=destination_record.username,
+                password_encrypted=destination_record.password_encrypted,
+                sslmode=destination_record.sslmode,
+            )
             source = _connect(source_record)
             destination = _connect(destination_record)
             network_rtt = {
@@ -955,6 +967,12 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     for key in source_pk
                 ]
 
+                # Snapshot the small amount of table metadata used by writer
+                # threads; do not share SQLAlchemy ORM instances across threads.
+                writer_table = SimpleNamespace(
+                    destination_schema=table.destination_schema,
+                    destination_table=table.destination_table,
+                )
                 # Retrieve destination column types once per table.
                 destination_column_types = _get_destination_column_types(
                     destination,
@@ -1079,8 +1097,8 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                             _write_parallel_batch,
                             run_id,
                             progress.id,
-                            destination_record,
-                            table,
+                            destination_writer_record,
+                            writer_table,
                             destination_columns,
                             destination_column_types,
                             destination_pk,
