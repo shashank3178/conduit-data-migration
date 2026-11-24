@@ -4,6 +4,7 @@ import math
 import os
 import time
 import uuid
+import sys
 from datetime import UTC, date, datetime
 from datetime import time as datetime_time
 from decimal import Decimal
@@ -11,6 +12,19 @@ from uuid import UUID as PyUUID
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+
+
+def _process_peak_rss_bytes() -> int | None:
+    """Best-effort process peak RSS; unavailable on platforms without resource."""
+    try:
+        import resource
+        value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        # Linux reports KiB; macOS reports bytes.
+        return int(value if sys.platform == "darwin" else value * 1024)
+    except (ImportError, AttributeError, OSError, ValueError):
+        return None
+
+
 
 import psycopg
 from psycopg import sql
@@ -766,6 +780,9 @@ def _validate_table(source, destination, table, source_columns, destination_colu
 
 def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
     source = destination = None
+    run_wall_started = time.monotonic()
+    run_cpu_started = time.process_time()
+    metadata_commit_total_ms = 0.0
     with SessionLocal() as db:
         run = db.get(MigrationRun, run_id)
         if not run or run.status not in {"queued", "running"}:
@@ -871,6 +888,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     if _cancel_requested(run_id):
                         break
                     batch_started = time.monotonic()
+                    batch_cpu_started = time.process_time()
                     fetch_started = time.monotonic()
                     for source_attempt in range(run.max_retries + 1):
                         try:
@@ -951,6 +969,16 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                         logical_payload_size=batch_logical_bytes,
                     )
                     _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, logical_bytes=batch_logical_bytes, duration_ms=duration_ms, source_fetch_duration_ms=fetch_duration_ms, destination_write_duration_ms=destination_write_duration_ms, source_network_rtt_ms=network_rtt["source"], destination_network_rtt_ms=network_rtt["destination"])
+                    commit_started = time.monotonic()
+                    db.commit()
+                    metadata_commit_ms = (time.monotonic() - commit_started) * 1000
+                    metadata_commit_total_ms += metadata_commit_ms
+                    _event(
+                        db, run, "batch_profiled", progress,
+                        batch_metadata_commit_ms=round(metadata_commit_ms, 2),
+                        batch_cpu_ms=round((time.process_time() - batch_cpu_started) * 1000, 2),
+                        process_peak_rss_bytes=_process_peak_rss_bytes(),
+                    )
                     db.commit()
                 if _cancel_requested(run_id):
                     progress.status = "cancelled"
@@ -1022,7 +1050,24 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
             run.status = "cancelled" if cancelled else ("partially_failed" if run.failed_rows or run.mismatch_rows else "completed")
             run.finished_at = datetime.now(UTC)
             run.heartbeat_at = datetime.now(UTC)
-            _event(db, run, "run_finished", status=run.status, inserted=run.inserted_rows, updated=run.updated_rows, skipped=run.skipped_rows, failed=run.failed_rows, mismatches=run.mismatch_rows)
+            wall_elapsed_ms = (time.monotonic() - run_wall_started) * 1000
+            logical_bytes_total = ensure_run_metric(db, run).logical_bytes
+            _event(
+                db, run, "run_finished",
+                status=run.status,
+                inserted=run.inserted_rows,
+                updated=run.updated_rows,
+                skipped=run.skipped_rows,
+                failed=run.failed_rows,
+                mismatches=run.mismatch_rows,
+                wall_clock_elapsed_ms=round(wall_elapsed_ms, 2),
+                process_cpu_ms=round((time.process_time() - run_cpu_started) * 1000, 2),
+                metadata_commit_total_ms=round(metadata_commit_total_ms, 2),
+                logical_throughput_bytes_per_second=round(
+                    logical_bytes_total / (wall_elapsed_ms / 1000), 2
+                ) if wall_elapsed_ms > 0 else 0,
+                process_peak_rss_bytes=_process_peak_rss_bytes(),
+            )
             record_database_snapshot(db, run, source_record, "source", source)
             record_database_snapshot(db, run, destination_record, "destination", destination)
             finish_run_metric(db, run)
@@ -1038,7 +1083,15 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     f"{_execution_error_detail(exc)}"
                 )[:1200]
                 failed_run.finished_at = datetime.now(UTC)
-                _event(db, failed_run, "run_failed", error_type=type(exc).__name__)
+                elapsed_ms = (time.monotonic() - run_wall_started) * 1000
+                _event(
+                    db, failed_run, "run_failed",
+                    error_type=type(exc).__name__,
+                    wall_clock_elapsed_ms=round(elapsed_ms, 2),
+                    process_cpu_ms=round((time.process_time() - run_cpu_started) * 1000, 2),
+                    metadata_commit_total_ms=round(metadata_commit_total_ms, 2),
+                    process_peak_rss_bytes=_process_peak_rss_bytes(),
+                )
                 finish_run_metric(db, failed_run)
                 db.commit()
         finally:
