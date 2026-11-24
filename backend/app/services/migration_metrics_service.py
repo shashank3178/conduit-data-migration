@@ -5,7 +5,6 @@ import time
 from datetime import UTC, datetime
 
 import psycopg
-from sqlalchemy import func
 
 from app.models.migration_metrics import (
     MigrationBatchMetric,
