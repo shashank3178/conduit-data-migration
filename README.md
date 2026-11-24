@@ -1,83 +1,71 @@
 # Snowbridge — Enterprise Database Migration Platform
 
-Snowbridge is a clean-room V2 database migration platform. Development happens on `v2/rebuild`; this branch is deliberately independent of the V1 application on `main`.
+Snowbridge is a V2 database migration platform. All V2 work is isolated on `v2/rebuild`; V1 `main` remains untouched.
 
-> **Status:** Phase 2 discovery/planning adapters and canonical inventory are implemented on `v2/rebuild` for PostgreSQL, MySQL and Oracle. Live cross-engine qualification is still required. This repository does not yet claim production-ready migration execution, CDC, or reconciliation.
+## Current runnable demonstration
 
-## Branch and product boundaries
+This branch now includes:
+- PostgreSQL, MySQL and Oracle connection/discovery adapters and common inventory contracts.
+- A FastAPI backend for connection testing, PostgreSQL schema discovery, and a PostgreSQL-to-PostgreSQL snapshot migration.
+- A Next.js control-plane UI for connection configuration, discovery, catalog estimates, capability display, and migration progress.
+- A consistent PostgreSQL exported MVCC snapshot, target DDL preparation, bounded binary COPY streaming, and target-side replay ledger for per-table commits.
+- Existing metadata schema, lease/checkpoint primitives, adaptive integer chunk planning and unit/integration tests.
 
-- Product name: **Snowbridge**.
-- `main` remains the historical V1 Conduit application.
-- `v2/rebuild` is the Snowbridge V2 line. Do not merge V2 into `main` or open PRs targeting `main`.
-- The GitHub repository slug remains `conduit-data-migration` for continuity; the product/application identity is Snowbridge.
-- No V1 runtime code or migration implementation is reused by Snowbridge.
+**Important scope boundary:** the executable API pipeline is PostgreSQL-to-PostgreSQL only and snapshot-only. It requires matching PostgreSQL major versions and empty target tables. It refuses to truncate or append into non-empty target tables. MySQL/Oracle are currently discovery/capability adapters, not executable migration sources or targets. CDC, automatic reconciliation, durable API job state, authentication/RBAC and cutover are not complete. The API's demo job state is in memory and is lost when the process restarts. Do not expose this demo API directly to the public internet or use it for production data.
 
-## Architecture
+## Run backend
 
-Snowbridge separates the management plane (projects, connections, plans, policy) from the data plane (snapshot extraction, CDC, bulk load, reconciliation). Database-specific behavior lives behind source and target adapter contracts. Durable task leases and checkpoints make work restartable; bounded streaming and backpressure keep memory independent of total table size.
+Python 3.11+ recommended.
 
-See:
-- [Architecture overview](docs/architecture/README.md)
-- [Architecture decision records](docs/adr/)
-- [Domain and adapter contracts](docs/contracts/README.md)
-- [Metadata schema](backend/sql/0001_metadata_schema.sql)
-- [Implementation roadmap](docs/IMPLEMENTATION_ROADMAP.md)
-- [Operations, recovery and security](docs/OPERATIONS.md)
-- [Local development with native PostgreSQL](docs/LOCAL_DEVELOPMENT.md)
-- [Benchmark and test strategy](docs/TEST_STRATEGY.md)
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[discovery]"
+Copy-Item .env.example .env
+# Configure SNOWBRIDGE_METADATA_DATABASE_URL in .env if using metadata migrations
+python -m snowbridge
+```
 
-## First vertical slice
+API docs: http://127.0.0.1:8000/docs
 
-PostgreSQL-to-PostgreSQL snapshot only:
-1. Secure connection references and capability preflight.
-2. Schema discovery and conservative DDL planning.
-3. A consistent source snapshot shared by bounded parallel readers.
-4. Streaming extraction and PostgreSQL `COPY FROM STDIN` target loading.
-5. Durable task/chunk checkpoints committed only after target commit.
-6. Initial reconciliation and restart/failure-injection tests.
+Health: http://127.0.0.1:8000/api/health
 
-CDC and heterogeneous adapters follow only after this slice is correct and recoverable.
+The demo API does not require the metadata database to start. The metadata migration command remains available separately:
+```powershell
+python -m snowbridge.metadata.migrate
+```
 
-## Development status
+## Run frontend
 
-The Python package in `backend/src/snowbridge` defines executable domain contracts and state-transition guards. It is intentionally not an end-to-end migration engine yet. SQL is the initial metadata schema proposal and must be applied through a versioned migration system before deployment.
+Open a second terminal:
+```powershell
+cd frontend
+npm install
+Copy-Item .env.example .env.local
+npm run dev
+```
 
-## Local development
+Open http://localhost:3000.
 
-Use a native PostgreSQL installation on your machine (for example, PostgreSQL managed through pgAdmin). Docker Compose is not part of the local development workflow. Follow [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) to create the local role/database, configure the DSN, and apply metadata migrations.
+## Demo workflow
 
-The GitHub Actions CI job provisions its own disposable PostgreSQL service for automated integration checks; this does not require or use your local Docker setup.
+1. Configure a source PostgreSQL endpoint and test it.
+2. Configure a distinct target PostgreSQL endpoint.
+3. Optionally enter comma-separated source schemas (blank means all accessible schemas).
+4. Select **Discover schema** to view table inventory, approximate rows/bytes and source capabilities.
+5. Select **Run snapshot migration**. The target must be empty for every discovered table. The pipeline prepares conservative target DDL, exports one consistent source snapshot, and streams each table using PostgreSQL binary COPY with a target-side commit ledger.
+6. Review per-table committed rows and transferred bytes.
 
-## Local contract tests
+For local testing, use two separate databases/instances and a dedicated least-privilege role. Do not use a production database. The pipeline does not currently copy foreign keys, secondary indexes, views, triggers, routines, grants or sequences. It may reject unsupported PostgreSQL DDL such as partitioned tables, generated columns or custom types.
 
-Requires Python 3.11+.
+## Tests
 
-```bash
+```powershell
 cd backend
 python -m unittest discover -s tests -v
 ```
 
-## Non-goals
+## Architecture and roadmap
 
-- No table-size-proportional in-memory buffering.
-- No OFFSET-based large-table pagination.
-- No silent lossy type conversion or skipped row errors.
-- No claim of distributed exactly-once delivery across unrelated databases.
-- No Kafka, Redis, Kubernetes, or workflow engine dependency until measured requirements justify the operational cost.
-- No production readiness claim until integration, recovery, security, and scale gates pass.
-
-## License and security
-
-Do not commit credentials, connection strings containing secrets, customer data, or production dumps. Credentials are represented by opaque secret references; resolve them only at runtime through a secret-provider boundary.
-
-
-## Phase 2 — Discovery and planning
-
-The discovery layer provides a common schema inventory for PostgreSQL, MySQL and Oracle, capability preflight, conservative cross-engine type mapping, and catalog-based row/byte estimates. Install optional vendor drivers with:
-
-```bash
-cd backend
-python -m pip install -e ".[discovery]"
-```
-
-Use the adapter APIs in `snowbridge.connection_manager` and `snowbridge.discovery`. Credentials are resolved from a `SecretReference`; they are not persisted in connection specifications. Catalog estimates are explicitly marked as estimates and must not be treated as exact snapshot counts. See `docs/IMPLEMENTATION_ROADMAP.md` for remaining live qualification.
+See [V2_DESIGN.md](V2_DESIGN.md), [implementation roadmap](docs/IMPLEMENTATION_ROADMAP.md), [operations](docs/OPERATIONS.md), and [local development](docs/LOCAL_DEVELOPMENT.md).
