@@ -10,6 +10,8 @@ class ApiSurfaceTests(unittest.TestCase):
         paths = {route.path for route in app.routes}
         self.assertIn("/api/health", paths)
         self.assertIn("/api/connections/test", paths)
+        self.assertIn("/api/connections", paths)
+        self.assertIn("/api/connections/{connection_id}", paths)
         self.assertIn("/api/discovery", paths)
         self.assertIn("/api/migrations", paths)
 
