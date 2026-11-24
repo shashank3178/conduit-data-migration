@@ -22,8 +22,8 @@ def benchmark(connection, row_count: int, repeats: int, copy_format: str) -> lis
     query = f"COPY conduit_copy_benchmark (id, payload) FROM STDIN{suffix}"
 
     for _ in range(repeats):
-        connection.execute("TRUNCATE conduit_copy_benchmark")
         started = time.perf_counter()
+        connection.execute("TRUNCATE conduit_copy_benchmark")
         with connection.cursor().copy(query) as copy:
             if copy_format == "binary":
                 copy.set_types(["int8", "text"])
@@ -33,6 +33,8 @@ def benchmark(connection, row_count: int, repeats: int, copy_format: str) -> lis
         actual = connection.execute("SELECT count(*) FROM conduit_copy_benchmark").fetchone()[0]
         if actual != row_count:
             raise RuntimeError(f"{copy_format} COPY inserted {actual:,} rows; expected {row_count:,}")
+        connection.commit()
+        elapsed = time.perf_counter() - started
         timings.append(elapsed)
     return timings
 
@@ -53,7 +55,9 @@ def main() -> None:
             "CREATE TEMP TABLE conduit_copy_benchmark "
             "(id BIGINT PRIMARY KEY, payload TEXT) ON COMMIT PRESERVE ROWS"
         )
+        connection.commit()
         results = {}
+        estimated_bytes = args.rows * 125
         for copy_format in ("text", "binary"):
             timings = benchmark(connection, args.rows, args.repeats, copy_format)
             median = statistics.median(timings)
@@ -61,7 +65,7 @@ def main() -> None:
             print(
                 f"{copy_format:>6} COPY: median={median:.3f}s, "
                 f"rows/s={args.rows / median:,.0f}, "
-                f"MB/s={(args.rows * 120) / median / 1_000_000:.2f}"
+                f"MB/s={estimated_bytes / median / 1_000_000:.2f}"
             )
 
     if results["binary"] > 0:
