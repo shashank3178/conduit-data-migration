@@ -32,6 +32,16 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(mapping.target_type,"bigint")
         self.assertEqual(mapping.safety,MappingSafety.WARNING)
 
+    def test_mysql_unsigned_bigint_does_not_overflow_postgresql_bigint(self):
+        mapping=map_type("mysql","postgresql","bigint unsigned")
+        self.assertEqual(mapping.target_type,"numeric(20,0)")
+        self.assertEqual(mapping.safety,MappingSafety.WARNING)
+
+    def test_mysql_enum_is_preserved_as_text_with_warning(self):
+        mapping=map_type("mysql","postgresql","enum('new','paid','cancelled')")
+        self.assertEqual(mapping.target_type,"text")
+        self.assertEqual(mapping.safety,MappingSafety.WARNING)
+
     def test_oracle_date_preserves_time_component(self):
         mapping=map_type("oracle","postgresql","DATE")
         self.assertEqual(mapping.target_type,"timestamp")
