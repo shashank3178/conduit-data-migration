@@ -14,6 +14,33 @@ from zoneinfo import ZoneInfo
 logger = logging.getLogger(__name__)
 
 
+import psycopg
+from psycopg import sql
+from psycopg.types.json import Json, Jsonb
+from sqlalchemy import select
+
+from app.db.session import SessionLocal
+from app.models.connection import DatabaseConnection
+from app.models.migration_plan import MigrationColumnMapping, MigrationPlan, MigrationPlanTable
+from app.models.migration_run import (
+    MigrationRowError,
+    MigrationRun,
+    MigrationRunEvent,
+    MigrationRunTable,
+)
+from app.services.connection_service import decrypt_password
+from app.services.postgres_copy_writer import write_copy_batch
+from app.services.migration_metrics_service import (
+    ensure_run_metric,
+    finish_run_metric,
+    logical_payload_bytes,
+    measure_network_rtt,
+    record_committed_batch,
+    record_database_snapshot,
+    record_table_storage_snapshot,
+)
+
+
 def _process_peak_rss_bytes() -> int | None:
     """Best-effort process peak RSS; unavailable on platforms without resource."""
     if sys.platform == "win32":
@@ -52,34 +79,6 @@ def _process_peak_rss_bytes() -> int | None:
         return int(value if sys.platform == "darwin" else value * 1024)
     except (ImportError, AttributeError, OSError, ValueError):
         return None
-
-
-
-import psycopg
-from psycopg import sql
-from psycopg.types.json import Json, Jsonb
-from sqlalchemy import select
-
-from app.db.session import SessionLocal
-from app.models.connection import DatabaseConnection
-from app.models.migration_plan import MigrationColumnMapping, MigrationPlan, MigrationPlanTable
-from app.models.migration_run import (
-    MigrationRowError,
-    MigrationRun,
-    MigrationRunEvent,
-    MigrationRunTable,
-)
-from app.services.connection_service import decrypt_password
-from app.services.postgres_copy_writer import write_copy_batch
-from app.services.migration_metrics_service import (
-    ensure_run_metric,
-    finish_run_metric,
-    logical_payload_bytes,
-    measure_network_rtt,
-    record_committed_batch,
-    record_database_snapshot,
-    record_table_storage_snapshot,
-)
 
 
 def _event(db, run, event_type, run_table=None, **details):
