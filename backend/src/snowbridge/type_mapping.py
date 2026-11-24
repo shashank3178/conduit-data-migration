@@ -129,7 +129,7 @@ def map_type(
         safety = MappingSafety.UNSUPPORTED
         reason = "No safe automatic mapping is registered for this native type."
 
-    if target is None and safety is not MappingSafety.UNSUPPORTED:
+    if target is None and safety is MappingSafety.AUTOMATIC:
         safety = MappingSafety.UNSUPPORTED
         reason = reason or "No safe target representation was identified."
 
