@@ -80,7 +80,7 @@ def resource_aware_table_order(tables, progress_by_plan_table):
         progress = progress_by_plan_table.get(table.id)
         if progress and progress.status in {"completed", "partially_failed"}:
             return (1, 0, table.source_schema, table.source_table)
-        estimate = int(getattr(progress, "total_rows", 0) or 0)
+        estimate = int(getattr(progress, "total_rows", 0) or getattr(table, "estimated_rows", 0) or 0)
         return (0, -estimate, table.source_schema, table.source_table)
 
     return sorted(tables, key=priority)
