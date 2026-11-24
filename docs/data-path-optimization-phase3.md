@@ -30,7 +30,7 @@ Do not turn on binary COPY until the benchmark and a representative end-to-end m
 CONDUIT_COPY_FORMAT=binary
 ```
 
-Binary COPY can be faster for supported PostgreSQL/Psycopg type adapters, but not every custom/domain/extension type necessarily has a usable binary dumper. Text remains the safe default.
+Binary COPY can be faster for supported PostgreSQL/Psycopg type adapters, but it applies no implicit casts. The implementation sets explicit destination types for common scalar types and rejects unsupported types such as arrays and user-defined domains. Text remains the safe default.
 
 ## Benchmark text vs binary COPY
 
@@ -42,7 +42,7 @@ $env:CONDUIT_BENCHMARK_DSN = "postgresql://user:password@host:5432/disposable_db
 python scripts/benchmark_copy_formats.py --rows 100000 --repeats 3
 ```
 
-The benchmark writes the same BIGINT/TEXT dataset through text and binary row-wise COPY on the same connection, verifies row counts, and reports median rows/s and estimated MB/s. It isolates COPY ingest; it does not include staging merge, indexes, constraints, network source extraction, or validation. Repeat against the actual destination network/database class before choosing a format.
+The benchmark writes the same BIGINT/TEXT dataset through text and binary row-wise COPY on the same connection, explicitly sets the binary types to BIGINT/TEXT, verifies row counts, and reports median rows/s and estimated MB/s. It isolates COPY ingest; it does not include staging merge, indexes, constraints, network source extraction, or validation. Repeat against the actual destination network/database class before choosing a format.
 
 ## Checkpoint commit frequency and recovery
 
