@@ -1020,9 +1020,14 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 writer_count = _migration_writer_count()
                 max_in_flight = max(writer_count, writer_count * 2)
                 pending = deque()
+                metadata_batches_pending = 0
+                try:
+                    metadata_commit_every = max(1, min(16, int(os.getenv("CONDUIT_METADATA_COMMIT_EVERY", "4"))))
+                except ValueError:
+                    metadata_commit_every = 4
 
                 def commit_written_batch(item):
-                    nonlocal last_key, metadata_commit_total_ms
+                    nonlocal last_key, metadata_commit_total_ms, metadata_batches_pending
                     future, batch_rows, batch_keys, checkpoint_start, fetch_ms, batch_started_at, cpu_started_at = item
                     inserted, updated, skipped, failed, failed_keys, write_ms = future.result()
                     last_key = batch_keys[-1]
@@ -1068,9 +1073,12 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                         process_peak_rss_bytes=_process_peak_rss_bytes(),
                         writer_count=writer_count,
                     )
-                    commit_started = time.monotonic()
-                    db.commit()
-                    metadata_commit_total_ms += (time.monotonic() - commit_started) * 1000
+                    metadata_batches_pending += 1
+                    if metadata_batches_pending >= metadata_commit_every:
+                        commit_started = time.monotonic()
+                        db.commit()
+                        metadata_commit_total_ms += (time.monotonic() - commit_started) * 1000
+                        metadata_batches_pending = 0
 
                 writer_connections = []
                 writer_connections_lock = threading.Lock()
@@ -1139,6 +1147,13 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
 
                     while pending:
                         commit_written_batch(pending.popleft())
+
+                # Persist the final partial checkpoint group before validation.
+                if metadata_batches_pending:
+                    commit_started = time.monotonic()
+                    db.commit()
+                    metadata_commit_total_ms += (time.monotonic() - commit_started) * 1000
+                    metadata_batches_pending = 0
 
                 for writer_connection in writer_connections:
                     try:
