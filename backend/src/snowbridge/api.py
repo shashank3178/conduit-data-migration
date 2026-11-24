@@ -12,7 +12,7 @@ import traceback
 import uuid
 from dataclasses import asdict
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import psycopg
 from fastapi import BackgroundTasks, FastAPI, HTTPException
@@ -55,7 +55,13 @@ class ConnectionInput(BaseModel):
     database: str = Field(min_length=1, max_length=255)
     username: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=1, max_length=2048)
-    tls: bool = False
+    tls: bool = True
+    sslmode: str = Field(default="require", pattern="^(disable|allow|prefer|require|verify-ca|verify-full)$")
+    connect_timeout: int = Field(default=10, ge=1, le=300)
+    hostaddr: str | None = Field(default=None, max_length=255)
+    application_name: str = Field(default="snowbridge", max_length=100)
+    target_session_attrs: str = Field(default="any", pattern="^(any|read-write|read-only|primary|standby|prefer-standby)$")
+    options: str | None = Field(default=None, max_length=2048)
 
 
 class DiscoveryRequest(BaseModel):
@@ -82,7 +88,7 @@ def list_connections() -> list[dict[str, Any]]:
             {"id": key, "name": item["name"], "engine": item["connection"].engine,
              "host": item["connection"].host, "port": item["connection"].port,
              "database": item["connection"].database, "username": item["connection"].username,
-             "tls": item["connection"].tls}
+             "tls": item["connection"].tls, "sslmode": item["connection"].sslmode, "connect_timeout": item["connection"].connect_timeout, "hostaddr": item["connection"].hostaddr, "application_name": item["connection"].application_name, "target_session_attrs": item["connection"].target_session_attrs}
             for key, item in CONNECTIONS.items()
         ]
 
@@ -106,12 +112,21 @@ def remove_connection(connection_id: str) -> dict[str, str]:
 def _dsn(value: ConnectionInput) -> str:
     if value.engine.lower() not in {"postgres", "postgresql"}:
         raise HTTPException(400, "The executable snapshot pipeline currently supports PostgreSQL endpoints only.")
+    params = {
+        "connect_timeout": value.connect_timeout,
+        "sslmode": value.sslmode if value.tls else "disable",
+        "application_name": value.application_name,
+        "target_session_attrs": value.target_session_attrs,
+    }
+    if value.hostaddr:
+        params["hostaddr"] = value.hostaddr
+    if value.options:
+        params["options"] = value.options
     return (
         f"postgresql://{quote(value.username, safe='')}:{quote(value.password, safe='')}"
-        f"@{value.host}:{value.port}/{quote(value.database, safe='')}"
-        f"?connect_timeout=10&sslmode={'require' if value.tls else 'prefer'}"
+        f"@{value.host}:{value.port}/{quote(value.database, safe='')}?"
+        f"{urlencode(params)}"
     )
-
 
 class _RequestSecretProvider:
     """Ephemeral provider; request credentials are never written to disk or logs."""
@@ -123,6 +138,12 @@ class _RequestSecretProvider:
 
 
 def _adapter(value: ConnectionInput):
+    if value.engine.lower() in {"postgres", "postgresql"}:
+        return PostgresAdapter(PostgresEndpoint(
+            _dsn(value),
+            connect_timeout=value.connect_timeout,
+            application_name=value.application_name,
+        ))
     spec = ConnectionSpec(
         connection_id="request-only",
         engine=value.engine,
@@ -131,6 +152,7 @@ def _adapter(value: ConnectionInput):
         username=value.username,
         secret_ref=SecretReference("ephemeral", "request-only"),
         port=value.port,
+        connect_timeout_seconds=value.connect_timeout,
         tls_required=value.tls,
     )
     return ConnectionManager(_RequestSecretProvider(value.password)).create_adapter(spec)
