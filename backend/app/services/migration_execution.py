@@ -1202,7 +1202,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 mismatches=run.mismatch_rows,
                 wall_clock_elapsed_ms=round(wall_elapsed_ms, 2),
                 process_cpu_ms=round((time.process_time() - run_cpu_started) * 1000, 2),
-                metadata_commit_total_ms=round(metadata_commit_total_ms, 2),
+                batch_metadata_commit_total_ms=round(metadata_commit_total_ms, 2),
                 logical_throughput_bytes_per_second=round(
                     logical_bytes_total / (wall_elapsed_ms / 1000), 2
                 ) if wall_elapsed_ms > 0 else 0,
