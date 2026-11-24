@@ -25,9 +25,9 @@
 - [x] PostgreSQL task claim/heartbeat/complete/fail operations using SKIP LOCKED and lease fencing
 - [x] Metadata migration CLI resolves its DSN from process environment or backend/.env
 
-**Not complete:** a coordinated parallel chunk scheduler, strict per-chunk byte budget/LOB streaming, target-side idempotency ledger, atomic target-commit/checkpoint protocol, end-to-end source-to-target run service, schema DDL translator, API/UI integration, and production-grade crash-recovery tests. The adapter and task-queue primitives must not be treated as a finished migration pipeline.
+**Not complete:** the standalone parallel chunk scheduler is not wired into the demo API; strict LOB-aware per-chunk budgets, durable cross-process orchestration and production crash-recovery tests remain. A table-at-a-time binary COPY demo path is now available, but it is not a production migration service.
 
-## Milestone 1B — PostgreSQL → PostgreSQL snapshot execution (in progress)
+## Milestone 1B — PostgreSQL → PostgreSQL snapshot execution (prototype path available; exit gate open)
 
 Implemented in this iteration:
 - [x] Deterministic integer-key range planner with non-overlapping half-open ranges and an inclusive final range
@@ -54,12 +54,12 @@ Additional implementation delivered:
 - [x] Unit tests cover adaptive range coverage, budget subdivision, oversized rows, DDL generation and unsupported-schema diagnostics.
 
 Remaining work:
-1. Add a row-adaptive strategy for tables without a suitable integer unique key; current parallel range planner still requires one integer key.
+1. Wire the existing integer/composite keyset and adaptive chunk planners into the API worker pipeline; current demo API uses table-level binary COPY.
 2. Add LOB-aware row policy for indivisible oversized records and end-to-end tests proving block-bounded transfer for very large values.
 3. Add foreign-key dependency ordering, FK DDL, indexes, check constraints, collations, extensions and generated-column expression translation.
 4. Add serial/identity sequence synchronization and target schema-parity validation; CREATE TABLE IF NOT EXISTS alone does not prove an existing target is compatible.
-5. Implement target staging/commit protocol and target-side durable idempotency records.
-6. Persist chunk state and checkpoints only after confirmed target commit.
+5. Replace demo in-memory job tracking with durable run/task records and wire the target commit protocol to metadata checkpoints.
+6. Persist chunk state and checkpoints only after confirmed target commit in the API worker lifecycle.
 7. Connect the run orchestrator to the durable task queue and recover expired leases.
 8. Add live integration tests with worker termination and commit/checkpoint fault injection.
 9. Add deterministic row/bucket reconciliation.
@@ -138,3 +138,37 @@ Live qualification still required before calling the exit criterion production-v
 - Add per-version compatibility coverage and compare catalog estimates against actual row/byte measurements on representative schemas.
 
 Important boundary: Phase 2 inventory supports table/column/key planning; object classes not explicitly discovered must be reported as out of scope rather than assumed migrated. MySQL and Oracle CDC/data-plane execution are not implemented by this milestone.
+
+
+## Submission iteration — API, UI and executable snapshot demo (delivered on v2/rebuild)
+
+- [x] FastAPI application entry point, health route and interactive OpenAPI documentation.
+- [x] Connection-test and schema-discovery HTTP endpoints wired to PostgreSQL, MySQL and Oracle adapters; request credentials are resolved ephemerally and are not persisted.
+- [x] Next.js control-plane UI with source/target forms, engine selection, connection test, schema explorer, capability report, catalog estimates and migration progress.
+- [x] PostgreSQL-to-PostgreSQL snapshot-only demo endpoint using a consistent exported MVCC snapshot, conservative target DDL, bounded binary COPY blocks and target-local replay ledger.
+- [x] Demo migration refuses non-empty target tables and mismatched PostgreSQL major versions; it does not truncate target data.
+- [x] Backend API smoke tests and frontend production build in GitHub Actions.
+- [x] Latest verified CI run: 59 Python tests passed, 3 optional live vendor tests skipped; metadata migrations applied twice; Next.js production build passed.
+
+**Hard limits of this submission build:**
+- The executable migration pipeline is PostgreSQL-to-PostgreSQL only. MySQL and Oracle are available for connection testing and discovery, not data-plane migration.
+- The demo migration transfers tables sequentially using a table-level restart unit. It does not yet resume a partially completed multi-table run after process restart.
+- Demo job state is process-local memory, not durable. The existing PostgreSQL task lease and checkpoint primitives are not wired into this API.
+- CDC, transaction-log capture, deep reconciliation, discrepancy repair/DLQ workflow and enterprise cutover are not implemented.
+- The demo copies basic tables/columns and currently omits foreign keys, secondary indexes, views, triggers, routines, grants and sequence synchronization. Unsupported schema constructs may fail explicitly.
+- The API has no authentication/RBAC and is intended only for localhost demonstration. Do not expose it to untrusted networks or use it for production/customer data.
+- Binary COPY is restricted to matching PostgreSQL major versions and compatible native column types. The target tables must be empty.
+
+### Phase status after this iteration
+
+| Phase | Status |
+|---|---|
+| 1 — Architecture foundation | Core contracts, metadata schema and credential abstraction implemented; domain boundary tests pass |
+| 2 — Discovery and planning | Three adapter discovery paths implemented; live MySQL/Oracle qualification and broader object inventory remain |
+| 3 — Snapshot engine | Runnable PostgreSQL-to-PostgreSQL sequential snapshot prototype; parallel chunk orchestration and durable whole-run recovery remain |
+| 4 — CDC engine | Not implemented |
+| 5 — Reconciliation | Metadata/contracts only; execution and repair not implemented |
+| 6 — Orchestration and recovery | Lease/checkpoint primitives exist; not connected to demo API lifecycle |
+| 7 — Enterprise cutover | Not implemented |
+| 8 — Frontend | Local console for connection testing, discovery and snapshot demo progress implemented; full lifecycle UI remains |
+| 9 — Production hardening | CI/build checks exist; authentication, isolation, security review, failure injection and scale qualification remain |

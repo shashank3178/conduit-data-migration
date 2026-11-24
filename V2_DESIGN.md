@@ -93,3 +93,8 @@ until the reconciliation and cutover gates are implemented.
 ## Phase 2 — Discovery and planning implementation
 
 The branch now includes PostgreSQL, MySQL and Oracle connection adapters and catalog introspection, a shared schema IR with table/column/key metadata and size estimates, capability reports, conservative cross-engine type mapping, and a unified discovery report with unsupported-type diagnostics and estimate confidence. Optional driver installation is documented in README. These are discovery/planning components only; they do not imply CDC or migration execution support for MySQL/Oracle. Live validation against supported server versions and privilege profiles remains a release gate.
+
+
+## Runnable submission build status
+
+The repository now includes a FastAPI local API and Next.js console. The current executable data path is PostgreSQL-to-PostgreSQL snapshot-only: source MVCC snapshot, conservative target DDL, fixed-block binary COPY and target-side per-table commit ledger. MySQL and Oracle are wired to connection testing and discovery only. API job state remains in memory; CDC, automated reconciliation, durable worker orchestration, cutover and production authentication are not delivered. See `docs/IMPLEMENTATION_ROADMAP.md` and the root README for run instructions and limitations.
