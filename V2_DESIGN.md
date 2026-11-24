@@ -88,3 +88,8 @@ resumable keyless-table strategy, complete DDL dependency/sequence support,
 target schema parity, fault-injection recovery tests and deterministic
 reconciliation are still outstanding. Do not report a migration as successful
 until the reconciliation and cutover gates are implemented.
+
+
+## Phase 2 — Discovery and planning implementation
+
+The branch now includes PostgreSQL, MySQL and Oracle connection adapters and catalog introspection, a shared schema IR with table/column/key metadata and size estimates, capability reports, conservative cross-engine type mapping, and a unified discovery report with unsupported-type diagnostics and estimate confidence. Optional driver installation is documented in README. These are discovery/planning components only; they do not imply CDC or migration execution support for MySQL/Oracle. Live validation against supported server versions and privilege profiles remains a release gate.

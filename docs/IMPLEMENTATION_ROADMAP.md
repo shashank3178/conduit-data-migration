@@ -114,3 +114,27 @@ Still required before Phase 2 can be declared complete:
 - Add deterministic bucket checksums and deep PK reconciliation with mismatch diagnostics.
 
 The target ledger closes the target-commit/metadata-checkpoint replay gap when callers use the new execution helper. It does not make the two databases one distributed transaction and does not prove content equivalence. Phase 2 remains in progress until the remaining exit gates above pass.
+
+
+## Phase 2 — Discovery and planning (implementation delivered; live qualification pending)
+
+Implemented on `v2/rebuild`:
+- [x] Secret-reference based connection specification and adapter construction for PostgreSQL, MySQL and Oracle; passwords are resolved only at runtime.
+- [x] Optional MySQL Connector/Python and python-oracledb dependencies; PostgreSQL remains the default dependency.
+- [x] PostgreSQL catalog inventory for tables, ordered columns, defaults, generated/identity markers, primary/usable unique keys, partition flags, row estimates and relation bytes.
+- [x] MySQL information_schema inventory for base tables, ordered columns, native type modifiers, nullability, defaults, generated/auto-increment markers, collations, indexes/unique keys, engine, comments and catalog row/byte estimates.
+- [x] Oracle ALL_TABLES/ALL_TAB_COLS/ALL_CONSTRAINTS inventory for accessible owners, ordered visible columns, precision/scale/length, defaults, virtual/identity markers, enabled primary/unique constraints, partition flags, comments and statistics-based estimates.
+- [x] Shared schema IR extended with catalog byte estimates, storage-engine metadata, comments, indexes, foreign-key and check-constraint extension points.
+- [x] Unified capability preflight surfaces configuration and privilege requirements separately from availability.
+- [x] Conservative cross-engine type mapping with explicit warning, transform-required and unsupported outcomes; includes Oracle DATE/NUMBER, MySQL unsigned integers, enum/set, LOB and spatial cases.
+- [x] Unified discovery report with source inventory, target type mappings, unsupported mapping list, warnings, estimate confidence and explicit estimate assumptions.
+- [x] Inventory structural validation rejects empty column sets, invalid ordinals and keys referencing missing columns.
+- [x] Optional cross-engine dependency installation documented.
+
+Live qualification still required before calling the exit criterion production-verified:
+- Run the optional integration suite against PostgreSQL 16+, MySQL 8.0/8.4 and Oracle 19c/21c/23ai using least-privilege discovery accounts.
+- Verify visibility across multiple schemas/owners, restricted catalog grants, quoted identifiers, invisible/hidden columns, partitioned tables, generated columns, composite keys and vendor-specific collations.
+- Add catalog queries for foreign-key relationships, check constraints, views/materialized views, triggers, sequences, synonyms, routines, grants and vendor-specific objects before those object classes are included in migration plans.
+- Add per-version compatibility coverage and compare catalog estimates against actual row/byte measurements on representative schemas.
+
+Important boundary: Phase 2 inventory supports table/column/key planning; object classes not explicitly discovered must be reported as out of scope rather than assumed migrated. MySQL and Oracle CDC/data-plane execution are not implemented by this milestone.
