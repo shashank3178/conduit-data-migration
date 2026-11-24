@@ -1,15 +1,19 @@
 """Durable keyset-paginated PostgreSQL migration execution."""
 import logging
 import math
+import os
+import sys
+import threading
 import time
 import uuid
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from datetime import time as datetime_time
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID as PyUUID
 from zoneinfo import ZoneInfo
-
-logger = logging.getLogger(__name__)
 
 import psycopg
 from psycopg import sql
@@ -35,6 +39,50 @@ from app.services.migration_metrics_service import (
     record_database_snapshot,
     record_table_storage_snapshot,
 )
+from app.services.postgres_copy_writer import write_copy_batch
+
+logger = logging.getLogger(__name__)
+_writer_local = threading.local()
+
+
+def _process_peak_rss_bytes() -> int | None:
+    """Best-effort process peak RSS; unavailable on platforms without resource."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", ctypes.c_ulong),
+                    ("PageFaultCount", ctypes.c_ulong),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(counters)
+            process = ctypes.windll.kernel32.GetCurrentProcess()
+            ok = ctypes.windll.psapi.GetProcessMemoryInfo(
+                process, ctypes.byref(counters), counters.cb
+            )
+            return int(counters.PeakWorkingSetSize) if ok else None
+        except (AttributeError, OSError):
+            return None
+
+    try:
+        import resource
+
+        value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        # Linux reports KiB; macOS reports bytes.
+        return int(value if sys.platform == "darwin" else value * 1024)
+    except (ImportError, AttributeError, OSError, ValueError):
+        return None
 
 
 def _event(db, run, event_type, run_table=None, **details):
@@ -186,50 +234,43 @@ def _get_destination_column_types(destination, table, destination_columns):
     return column_types
 
 
-def _adapt_write_values(rows, destination_columns, column_types):
-    """
-    Adapt Python values to their destination PostgreSQL types.
+def _adapt_write_row(row, row_index, destination_columns, column_types):
+    if len(row) != len(destination_columns):
+        raise ValueError(
+            f"Batch row {row_index} has {len(row)} values, "
+            f"but {len(destination_columns)} destination columns."
+        )
 
-    JSON dictionaries and arrays are explicitly wrapped using Psycopg's
-    JSON adapters. Other values retain their original representation.
-    """
-    flat_values = []
-
-    for row_index, row in enumerate(rows):
-        if len(row) != len(destination_columns):
-            raise ValueError(
-                f"Batch row {row_index} has {len(row)} values, "
-                f"but {len(destination_columns)} destination columns."
+    adapted = []
+    for column, value in zip(destination_columns, row, strict=True):
+        destination_type = column_types.get(column, "").lower()
+        if isinstance(value, (dict, list)) and destination_type in {"json", "jsonb"}:
+            value = Json(value) if destination_type == "json" else Jsonb(value)
+        elif isinstance(value, dict):
+            raise TypeError(
+                f"Unsupported dictionary value during migration. "
+                f"Destination column: {column}; "
+                f"destination PostgreSQL type: {destination_type}; "
+                f"Python source type: dict. "
+                f"Map this column to a JSON or JSONB destination column."
             )
+        adapted.append(value)
+    return tuple(adapted)
 
-        for column, value in zip(
-            destination_columns,
-            row,
-            strict=True,
-        ):
-            destination_type = column_types.get(column, "").lower()
 
-            if isinstance(value, (dict, list)) and destination_type in {
-                "json",
-                "jsonb",
-            }:
-                if destination_type == "json":
-                    value = Json(value)
-                else:
-                    value = Jsonb(value)
+def _iter_adapted_write_rows(rows, destination_columns, column_types):
+    """Adapt one row at a time to avoid a second batch-sized flat-value list."""
+    for row_index, row in enumerate(rows):
+        yield _adapt_write_row(row, row_index, destination_columns, column_types)
 
-            elif isinstance(value, dict):
-                raise TypeError(
-                    f"Unsupported dictionary value during migration. "
-                    f"Destination column: {column}; "
-                    f"destination PostgreSQL type: {destination_type}; "
-                    f"Python source type: dict. "
-                    f"Map this column to a JSON or JSONB destination column."
-                )
 
-            flat_values.append(value)
-
-    return flat_values
+def _adapt_write_values(rows, destination_columns, column_types):
+    """Flatten adapted values for the VALUES fallback writer."""
+    return [
+        value
+        for row_index, row in enumerate(rows)
+        for value in _adapt_write_row(row, row_index, destination_columns, column_types)
+    ]
 
 
 def _write_batch(
@@ -248,6 +289,23 @@ def _write_batch(
     """
     if not rows:
         return 0, 0, 0
+
+    # COPY is the default bulk path. Keep VALUES as a diagnostic rollback
+    # switch for environments where COPY privileges are intentionally absent.
+    if (
+        os.getenv("CONDUIT_WRITE_ENGINE", "COPY").strip().upper() == "COPY"
+        and isinstance(destination, psycopg.Connection)
+    ):
+        return write_copy_batch(
+            destination,
+            table,
+            destination_columns,
+            conflict_columns,
+            rows,
+            strategy,
+            destination_column_types or {},
+            _iter_adapted_write_rows,
+        )
 
     width = len(destination_columns)
 
@@ -442,6 +500,91 @@ def _write_with_isolation(
 
     return write_or_split(rows, keys)
     
+
+def _migration_writer_count(destination) -> int:
+    """Choose writer concurrency from database headroom and local CPU capacity."""
+    from app.services.execution_scheduler import AdaptiveConcurrencyController
+
+    plan = AdaptiveConcurrencyController().plan(destination)
+    logger.info(
+        "Adaptive migration concurrency selected",
+        extra={
+            "writer_count": plan.workers,
+            "connection_budget": plan.connection_budget,
+            "database_connections_in_use": plan.database_connections_in_use,
+            "scheduler_reason": plan.reason,
+        },
+    )
+    return plan.workers
+
+
+def _write_parallel_batch(
+    run_id,
+    progress_id,
+    destination_record,
+    table,
+    destination_columns,
+    destination_column_types,
+    conflict_columns,
+    key_columns,
+    rows,
+    keys,
+    strategy,
+    connection_registry,
+    connection_registry_lock,
+):
+    """Write one batch on an independent destination connection and DB session."""
+    started = time.monotonic()
+    with SessionLocal() as worker_db:
+        worker_run = worker_db.get(MigrationRun, run_id)
+        worker_progress = worker_db.get(MigrationRunTable, progress_id)
+        if worker_run is None or worker_progress is None:
+            raise RuntimeError("Migration run or table progress disappeared during parallel write.")
+
+        for attempt in range(worker_run.max_retries + 1):
+            destination = getattr(_writer_local, "destination", None)
+            destination_id = getattr(_writer_local, "destination_id", None)
+            try:
+                if destination is None or destination_id != destination_record.id:
+                    if destination is not None:
+                        destination.close()
+                    destination = _connect(destination_record)
+                    _writer_local.destination = destination
+                    _writer_local.destination_id = destination_record.id
+                    with connection_registry_lock:
+                        connection_registry.append(destination)
+                result = _write_with_isolation(
+                    destination,
+                    worker_db,
+                    worker_run,
+                    worker_progress,
+                    table,
+                    destination_columns,
+                    destination_column_types,
+                    conflict_columns,
+                    key_columns,
+                    rows,
+                    keys,
+                    strategy,
+                )
+                if worker_db.new or worker_db.dirty or worker_db.deleted:
+                    worker_db.commit()
+                return (*result, round((time.monotonic() - started) * 1000, 2))
+            except psycopg.OperationalError:
+                worker_db.rollback()
+                if destination is not None:
+                    try:
+                        destination.close()
+                    finally:
+                        _writer_local.destination = None
+                        _writer_local.destination_id = None
+                worker_progress.retry_count += 1
+                worker_db.commit()
+                if attempt >= worker_run.max_retries:
+                    raise
+                time.sleep(min(0.5 * (2 ** attempt), 8.0))
+    raise RuntimeError("Parallel destination writer exhausted retries.")
+
 
 def _cursor_rows(cursor, size):
     while True:
@@ -747,6 +890,9 @@ def _validate_table(source, destination, table, source_columns, destination_colu
 
 def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
     source = destination = None
+    run_wall_started = time.monotonic()
+    run_cpu_started = time.process_time()
+    metadata_commit_total_ms = 0.0
     with SessionLocal() as db:
         run = db.get(MigrationRun, run_id)
         if not run or run.status not in {"queued", "running"}:
@@ -767,6 +913,17 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
         try:
             source_record = db.get(DatabaseConnection, plan.source_connection_id)
             destination_record = db.get(DatabaseConnection, plan.destination_connection_id)
+            # Pass immutable connection settings to writer threads; SQLAlchemy
+            # ORM instances and their Session must never cross thread boundaries.
+            destination_writer_record = SimpleNamespace(
+                id=destination_record.id,
+                host=destination_record.host,
+                port=destination_record.port,
+                database=destination_record.database,
+                username=destination_record.username,
+                password_encrypted=destination_record.password_encrypted,
+                sslmode=destination_record.sslmode,
+            )
             source = _connect(source_record)
             destination = _connect(destination_record)
             network_rtt = {
@@ -780,9 +937,12 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
             record_database_snapshot(db, run, source_record, "source", source)
             record_database_snapshot(db, run, destination_record, "destination", destination)
             db.commit()
-            tables = db.query(MigrationPlanTable).filter_by(plan_id=plan.id, selected=True).order_by(
-                MigrationPlanTable.source_schema, MigrationPlanTable.source_table
-            ).all()
+            tables = db.query(MigrationPlanTable).filter_by(plan_id=plan.id, selected=True).all()
+            from app.services.execution_scheduler import resource_aware_table_order
+
+            progress_rows = db.query(MigrationRunTable).filter_by(run_id=run_id).all()
+            progress_by_plan_table = {item.plan_table_id: item for item in progress_rows}
+            tables = resource_aware_table_order(tables, progress_by_plan_table)
 
             for table in tables:
                 if _cancel_requested(run_id):
@@ -806,6 +966,9 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 source_columns = [
                     source_name for source_name, _ in pairs
                 ]
+                # Resolve primary-key positions once per table instead of
+                # performing a linear list lookup for every row in every batch.
+                source_pk_indexes = [source_columns.index(name) for name in source_pk]
 
                 destination_columns = [
                     destination_name for _, destination_name in pairs
@@ -823,6 +986,12 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     for key in source_pk
                 ]
 
+                # Snapshot the small amount of table metadata used by writer
+                # threads; do not share SQLAlchemy ORM instances across threads.
+                writer_table = SimpleNamespace(
+                    destination_schema=table.destination_schema,
+                    destination_table=table.destination_table,
+                )
                 # Retrieve destination column types once per table.
                 destination_column_types = _get_destination_column_types(
                     destination,
@@ -848,64 +1017,28 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     run_table_id=progress.id, resolved_at=None
                 ).all()
                 retrying_errors = bool(unresolved_errors)
-                while upper_key is not None:
-                    if _cancel_requested(run_id):
-                        break
-                    batch_started = time.monotonic()
-                    fetch_started = time.monotonic()
-                    for source_attempt in range(run.max_retries + 1):
-                        try:
-                            batch = _fetch_batch(
-                                source, table, source_pk, source_columns,
-                                min(run.batch_size, max(1, 60000 // len(source_columns))),
-                                last_key, upper_key,
-                            )
-                            break
-                        except psycopg.OperationalError:
-                            progress.retry_count += 1
-                            db.commit()
-                            if source_attempt >= run.max_retries:
-                                raise
-                            time.sleep(min(2 ** source_attempt, 15))
-                            source.close()
-                            source = _connect(source_record)
-                    fetch_duration_ms = round((time.monotonic() - fetch_started) * 1000, 2)
-                    if not batch:
-                        break
-                    keys = [tuple(row[source_columns.index(name)] for name in source_pk) for row in batch]
-                    write_started = time.monotonic()
-                    checkpoint_start = list(last_key) if last_key is not None else None
-                    for attempt in range(run.max_retries + 1):
-                        try:
-                            inserted, updated, skipped, failed, failed_keys = _write_with_isolation(
-                            destination,
-                            db,
-                            run,
-                            progress,
-                            table,
-                            destination_columns,
-                            destination_column_types,
-                            destination_pk,
-                            source_pk,
-                            batch,
-                            keys,
-                            run.write_strategy,
-                        )
-                            break
-                        except psycopg.OperationalError:
-                            progress.retry_count += 1
-                            db.commit()
-                            if attempt >= run.max_retries:
-                                raise
-                            time.sleep(min(2 ** attempt, 15))
-                            destination.close()
-                            destination = _connect(destination_record)
-                    destination_write_duration_ms = round((time.monotonic() - write_started) * 1000, 2)
-                    last_key = keys[-1]
+                # Bounded producer/consumer pipeline: this worker fetches the next
+                # keyset batch while independent destination connections write
+                # earlier batches. Checkpoints are still committed strictly in
+                # source-key order, so last_key can never jump over a failed batch.
+                writer_count = _migration_writer_count(destination)
+                max_in_flight = max(writer_count, writer_count * 2)
+                pending = deque()
+                metadata_batches_pending = 0
+                try:
+                    metadata_commit_every = max(1, min(16, int(os.getenv("CONDUIT_METADATA_COMMIT_EVERY", "4"))))
+                except ValueError:
+                    metadata_commit_every = 4
+
+                def commit_written_batch(item):
+                    nonlocal last_key, metadata_commit_total_ms, metadata_batches_pending
+                    future, batch_rows, batch_keys, checkpoint_start, fetch_ms, batch_started_at, cpu_started_at = item
+                    inserted, updated, skipped, failed, failed_keys, write_ms = future.result()
+                    last_key = batch_keys[-1]
                     progress.last_key = _json_key(last_key)
                     if retrying_errors:
                         failed_key_set = {tuple(_json_key(key)) for key in failed_keys}
-                        batch_key_set = {tuple(_json_key(key)) for key in keys}
+                        batch_key_set = {tuple(_json_key(key)) for key in batch_keys}
                         for row_error in unresolved_errors:
                             error_key = tuple(row_error.source_key.get(name) for name in source_pk)
                             if error_key not in failed_key_set and error_key in batch_key_set:
@@ -921,18 +1054,116 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     run.failed_rows += failed
                     run.migrated_rows += inserted + updated + skipped
                     run.heartbeat_at = datetime.now(UTC)
-                    duration_ms = round((time.monotonic() - batch_started) * 1000, 2)
-                    batch_logical_bytes = logical_payload_bytes(batch)
+                    duration_ms = round((time.monotonic() - batch_started_at) * 1000, 2)
+                    batch_logical_bytes = logical_payload_bytes(batch_rows)
                     record_committed_batch(
-                        db, run, progress, batch, inserted, updated, skipped, failed,
+                        db, run, progress, batch_rows, inserted, updated, skipped, failed,
                         checkpoint_start, progress.last_key, duration_ms,
-                        source_fetch_duration_ms=fetch_duration_ms,
-                        destination_write_duration_ms=destination_write_duration_ms,
+                        source_fetch_duration_ms=fetch_ms,
+                        destination_write_duration_ms=write_ms,
                         network_rtt_ms=network_rtt,
                         logical_payload_size=batch_logical_bytes,
                     )
-                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, logical_bytes=batch_logical_bytes, duration_ms=duration_ms, source_fetch_duration_ms=fetch_duration_ms, destination_write_duration_ms=destination_write_duration_ms, source_network_rtt_ms=network_rtt["source"], destination_network_rtt_ms=network_rtt["destination"])
+                    _event(
+                        db, run, "batch_committed", progress,
+                        rows_read=len(batch_rows), inserted=inserted, updated=updated,
+                        skipped=skipped, failed=failed, checkpoint=progress.last_key,
+                        logical_bytes=batch_logical_bytes, duration_ms=duration_ms,
+                        source_fetch_duration_ms=fetch_ms,
+                        destination_write_duration_ms=write_ms,
+                        source_network_rtt_ms=network_rtt["source"],
+                        destination_network_rtt_ms=network_rtt["destination"],
+                        batch_cpu_ms=round((time.process_time() - cpu_started_at) * 1000, 2),
+                        process_peak_rss_bytes=_process_peak_rss_bytes(),
+                        writer_count=writer_count,
+                    )
+                    metadata_batches_pending += 1
+                    if metadata_batches_pending >= metadata_commit_every:
+                        commit_started = time.monotonic()
+                        db.commit()
+                        metadata_commit_total_ms += (time.monotonic() - commit_started) * 1000
+                        metadata_batches_pending = 0
+
+                writer_connections = []
+                writer_connections_lock = threading.Lock()
+                with ThreadPoolExecutor(
+                    max_workers=writer_count,
+                    thread_name_prefix=f"migration-writer-{str(run_id)[:8]}",
+                ) as writer_pool:
+                    fetch_key = last_key
+                    while upper_key is not None:
+                        if _cancel_requested(run_id):
+                            break
+                        batch_started_at = time.monotonic()
+                        cpu_started_at = time.process_time()
+                        fetch_started = time.monotonic()
+                        for source_attempt in range(run.max_retries + 1):
+                            try:
+                                batch = _fetch_batch(
+                                    source, table, source_pk, source_columns,
+                                    min(run.batch_size, max(1, 60000 // len(source_columns))),
+                                    fetch_key, upper_key,
+                                )
+                                break
+                            except psycopg.OperationalError:
+                                progress.retry_count += 1
+                                db.commit()
+                                if source_attempt >= run.max_retries:
+                                    raise
+                                time.sleep(min(2 ** source_attempt, 8))
+                                source.close()
+                                source = _connect(source_record)
+                        fetch_ms = round((time.monotonic() - fetch_started) * 1000, 2)
+                        if not batch:
+                            break
+
+                        batch_keys = [
+                            tuple(row[index] for index in source_pk_indexes)
+                            for row in batch
+                        ]
+                        checkpoint_start = list(fetch_key) if fetch_key is not None else None
+                        future = writer_pool.submit(
+                            _write_parallel_batch,
+                            run_id,
+                            progress.id,
+                            destination_writer_record,
+                            writer_table,
+                            destination_columns,
+                            destination_column_types,
+                            destination_pk,
+                            source_pk,
+                            batch,
+                            batch_keys,
+                            run.write_strategy,
+                            writer_connections,
+                            writer_connections_lock,
+                        )
+                        pending.append((
+                            future, batch, batch_keys, checkpoint_start,
+                            fetch_ms, batch_started_at, cpu_started_at,
+                        ))
+                        fetch_key = batch_keys[-1]
+
+                        # The bounded pending deque is the backpressure mechanism:
+                        # stop fetching when two batches per writer are in flight.
+                        if len(pending) >= max_in_flight:
+                            commit_written_batch(pending.popleft())
+
+                    while pending:
+                        commit_written_batch(pending.popleft())
+
+                # Persist the final partial checkpoint group before validation.
+                if metadata_batches_pending:
+                    commit_started = time.monotonic()
                     db.commit()
+                    metadata_commit_total_ms += (time.monotonic() - commit_started) * 1000
+                    metadata_batches_pending = 0
+
+                for writer_connection in writer_connections:
+                    try:
+                        writer_connection.close()
+                    except psycopg.Error:
+                        logger.warning("Failed to close a migration writer connection", exc_info=True)
                 if _cancel_requested(run_id):
                     progress.status = "cancelled"
                     db.commit()
@@ -1003,7 +1234,24 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
             run.status = "cancelled" if cancelled else ("partially_failed" if run.failed_rows or run.mismatch_rows else "completed")
             run.finished_at = datetime.now(UTC)
             run.heartbeat_at = datetime.now(UTC)
-            _event(db, run, "run_finished", status=run.status, inserted=run.inserted_rows, updated=run.updated_rows, skipped=run.skipped_rows, failed=run.failed_rows, mismatches=run.mismatch_rows)
+            wall_elapsed_ms = max(0.0, (run.finished_at - run.started_at).total_seconds() * 1000) if run.started_at else (time.monotonic() - run_wall_started) * 1000
+            logical_bytes_total = ensure_run_metric(db, run).logical_bytes
+            _event(
+                db, run, "run_finished",
+                status=run.status,
+                inserted=run.inserted_rows,
+                updated=run.updated_rows,
+                skipped=run.skipped_rows,
+                failed=run.failed_rows,
+                mismatches=run.mismatch_rows,
+                wall_clock_elapsed_ms=round(wall_elapsed_ms, 2),
+                process_cpu_ms=round((time.process_time() - run_cpu_started) * 1000, 2),
+                batch_metadata_commit_total_ms=round(metadata_commit_total_ms, 2),
+                logical_throughput_bytes_per_second=round(
+                    logical_bytes_total / (wall_elapsed_ms / 1000), 2
+                ) if wall_elapsed_ms > 0 else 0,
+                process_peak_rss_bytes=_process_peak_rss_bytes(),
+            )
             record_database_snapshot(db, run, source_record, "source", source)
             record_database_snapshot(db, run, destination_record, "destination", destination)
             finish_run_metric(db, run)
@@ -1019,7 +1267,15 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     f"{_execution_error_detail(exc)}"
                 )[:1200]
                 failed_run.finished_at = datetime.now(UTC)
-                _event(db, failed_run, "run_failed", error_type=type(exc).__name__)
+                elapsed_ms = max(0.0, (failed_run.finished_at - failed_run.started_at).total_seconds() * 1000) if failed_run.started_at else (time.monotonic() - run_wall_started) * 1000
+                _event(
+                    db, failed_run, "run_failed",
+                    error_type=type(exc).__name__,
+                    wall_clock_elapsed_ms=round(elapsed_ms, 2),
+                    process_cpu_ms=round((time.process_time() - run_cpu_started) * 1000, 2),
+                    metadata_commit_total_ms=round(metadata_commit_total_ms, 2),
+                    process_peak_rss_bytes=_process_peak_rss_bytes(),
+                )
                 finish_run_metric(db, failed_run)
                 db.commit()
         finally:

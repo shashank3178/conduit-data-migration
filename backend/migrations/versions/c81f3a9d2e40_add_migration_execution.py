@@ -3,16 +3,16 @@
 Revision ID: c81f3a9d2e40
 Revises: b7a4c2d9e610
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "c81f3a9d2e40"
-down_revision: Union[str, None] = "b7a4c2d9e610"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "b7a4c2d9e610"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

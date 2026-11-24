@@ -40,8 +40,21 @@ export default async function DiscoveryPage({ searchParams }: { searchParams: Pr
           <p className="conduit-eyebrow">Database intelligence</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">Discovery</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-            Verify database connectivity, inspect schemas and tables, and review column metadata before building a migration plan.
+            Build a metadata snapshot of your PostgreSQL database before planning a migration. Discovery inspects accessible schemas,
+            tables, views, columns, keys, constraints, indexes, and database capabilities so Conduit can assess compatibility,
+            dependencies, and migration scope.
           </p>
+          <div className="mt-4 max-w-3xl rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-800">What a discovery snapshot contains</p>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              A point-in-time record of database structure and metadata used by the migration planner. Re-run discovery after
+              schema changes to refresh the snapshot and keep the plan aligned with the source database.
+            </p>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              Discovery is not a database backup and does not copy application table data. Data consistency is established
+              separately during migration and validation.
+            </p>
+          </div>
         </header>
         {loadError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{loadError}</div>}
         <DiscoveryClient projects={projects} connectionsByProject={connectionsByProject} initialProjectId={query.projectId} />

@@ -15,6 +15,7 @@ type Detail = {
     heartbeat_at: string | null; started_at: string | null; finished_at: string | null; error_message: string | null;
   };
   metrics: null | { rows_fetched: number; rows_committed: number; batches_committed: number; logical_bytes: number; processing_duration_ms: number; rows_per_second: number; logical_bytes_per_second: number; source_fetch_duration_ms: number; destination_write_duration_ms: number; source_network_rtt_ms: number | null; destination_network_rtt_ms: number | null };
+  execution: { adaptive_workers_observed: number; worker_count_samples: number; partition_retries: number; checkpoint_strategy: string; validation_strategy: string };
   tables: Array<{id:string;source:string;destination:string;status:string;total_rows:number;inserted_rows:number;updated_rows:number;skipped_rows:number;failed_rows:number;validation_status:string;validation_details:null|{source_rows:number;destination_rows:number;matched_rows:number;missing_in_destination:number;extra_in_destination:number;changed_rows:number;exact_match_rows?:number;data_consistency_percent?:number;validation_checks?:Record<string,boolean>;samples?:Array<{reason:string;primary_key:Record<string,unknown>;different_columns?:string[]}>};metrics:null|{logical_bytes:number;source_physical_bytes:number|null;destination_physical_bytes:number|null;batches_committed:number}}>;
   batches: Array<{id:string;sequence:number;rows_fetched:number;rows_inserted:number;rows_updated:number;rows_skipped:number;rows_failed:number;logical_bytes:number;duration_ms:number;source_fetch_duration_ms:number;destination_write_duration_ms:number;network_rtt_ms:number|null;created_at:string}>;
   databases: Array<{role:string;database_name:string;physical_bytes:number;measurement_kind:string;captured_at:string}>;
@@ -42,6 +43,21 @@ export default async function MigrationRunDetailPage({params}:{params:Promise<{r
         <div className="flex flex-wrap justify-between gap-2"><div><p className="conduit-eyebrow">Execution progress</p><p className="mt-1 text-xl font-semibold tabular-nums">{progress.toFixed(1)}%</p></div><div className="text-right text-xs text-slate-500">{bytes(observedBytes)} payload / {bytes(estimatedBytes)} source footprint</div></div>
         <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-orange-500" style={{width:`${progress}%`}}/></div><p className="mt-1 text-[10px] text-slate-400">Approximate byte progress: serialized payload size and PostgreSQL physical relation size are not identical measurements.</p>
         {run.error_message&&<p className="mt-4 rounded-lg bg-rose-50 p-3 text-xs text-rose-700">{run.error_message}</p>}
+      </section>
+      <section className="conduit-card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><p className="conduit-eyebrow">Production execution controls</p><h2 className="mt-1 text-base font-semibold">Adaptive scheduler & recovery</h2><p className="mt-1 text-xs text-slate-500">Observed runtime behavior from committed batch events and table checkpoints.</p></div>
+          <span className="rounded-lg bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-800">Resource-aware</span>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl bg-slate-50 p-4"><p className="text-[10px] uppercase tracking-wide text-slate-500">Observed concurrent writers</p><p className="mt-1 text-2xl font-semibold tabular-nums">{run.status === "queued" ? "—" : detail.execution.adaptive_workers_observed || "Not observed"}</p><p className="mt-1 text-[10px] text-slate-400">{detail.execution.worker_count_samples} batch samples</p></div>
+          <div className="rounded-xl bg-slate-50 p-4"><p className="text-[10px] uppercase tracking-wide text-slate-500">Partition retries</p><p className="mt-1 text-2xl font-semibold tabular-nums">{detail.execution.partition_retries.toLocaleString()}</p><p className="mt-1 text-[10px] text-slate-400">Per-table retry counter</p></div>
+          <div className="rounded-xl bg-slate-50 p-4"><p className="text-[10px] uppercase tracking-wide text-slate-500">Checkpointing</p><p className="mt-1 text-sm font-semibold">Ordered & resumable</p><p className="mt-1 text-[10px] text-slate-400">Idempotent batch replay</p></div>
+        </div>
+        <div className="mt-4 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+          <p><strong>Validation:</strong> {detail.execution.validation_strategy}</p>
+          <p><strong>Recovery:</strong> {detail.execution.checkpoint_strategy}</p>
+        </div>
       </section>
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Rows committed" value={committedRows.toLocaleString()} icon={<Rows3 size={17}/>} />

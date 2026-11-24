@@ -126,6 +126,18 @@ def analytics_run_detail(
     databases = db.query(MigrationDatabaseMetric).filter_by(run_id=run.id).order_by(
         MigrationDatabaseMetric.captured_at.desc()
     ).limit(20).all()
+    execution_events = db.query(MigrationRunEvent).filter(
+        MigrationRunEvent.run_id == run.id,
+        MigrationRunEvent.event_type.in_(["batch_committed", "validation_finished"]),
+    ).order_by(MigrationRunEvent.created_at.desc()).limit(500).all()
+    writer_counts = [
+        int(event.details.get("writer_count", 0))
+        for event in execution_events
+        if event.event_type == "batch_committed"
+        and isinstance(event.details, dict)
+        and event.details.get("writer_count") is not None
+    ]
+    retry_count = sum(int(item.retry_count or 0) for item in tables)
     return {
         "run": {
             "id": str(run.id), "status": run.status, "worker_id": run.worker_id,
@@ -136,6 +148,13 @@ def analytics_run_detail(
             "validation_status": run.validation_status, "mismatch_rows": run.mismatch_rows,
             "heartbeat_at": run.heartbeat_at, "started_at": run.started_at,
             "finished_at": run.finished_at, "error_message": run.error_message,
+        },
+        "execution": {
+            "adaptive_workers_observed": max(writer_counts) if writer_counts else 0,
+            "worker_count_samples": len(writer_counts),
+            "partition_retries": retry_count,
+            "checkpoint_strategy": "ordered primary-key checkpoints with idempotent batch replay",
+            "validation_strategy": "streaming primary-key merge comparison",
         },
         "metrics": None if run_metric is None else {
             "rows_fetched": run_metric.rows_fetched,

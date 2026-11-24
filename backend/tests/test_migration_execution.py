@@ -11,12 +11,13 @@ os.environ.setdefault("AUTH0_ISSUER", "https://example.auth0.com/")
 
 from app.services import migration_execution as execution
 from app.services.migration_execution import (
-    _get_destination_column_types, _write_with_isolation,
+    _get_destination_column_types,
     _json_key,
     _restore_key,
     _validate_table,
     _validate_table_detailed,
     _write_batch,
+    _write_with_isolation,
 )
 
 
@@ -335,3 +336,137 @@ def test_checkpoint_restores_float_and_time_primary_keys():
     values = (12.5, time(9, 30, 15))
     metadata = [{"type": "DOUBLE PRECISION"}, {"type": "TIME"}]
     assert _restore_key(_json_key(values), metadata) == values
+
+
+def test_copy_staging_writer_copies_then_merges_and_clears_stage():
+    from app.services.postgres_copy_writer import write_copy_batch
+
+    class FakeCopy:
+        def __init__(self):
+            self.rows = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def write_row(self, row):
+            self.rows.append(tuple(row))
+
+    class FakeCursor:
+        def __init__(self, copy_context):
+            self.copy_context = copy_context
+
+        def copy(self, _query):
+            return self.copy_context
+
+    class FakeCopyDestination:
+        def __init__(self):
+            self.copy_context = FakeCopy()
+            self.executed = []
+
+        def execute(self, query):
+            self.executed.append(query)
+            if len(self.executed) == 3:
+                return FakeResult([(True,), (True,)])
+            return FakeResult([])
+
+        def cursor(self):
+            return FakeCursor(self.copy_context)
+
+    destination = FakeCopyDestination()
+    table = SimpleNamespace(destination_schema="public", destination_table="target")
+
+    result = write_copy_batch(
+        destination,
+        table,
+        ["id", "value"],
+        ["id"],
+        [(1, "one"), (2, "two")],
+        "INSERT_ONLY",
+        {},
+        lambda rows, _columns, _types: [value for row in rows for value in row],
+    )
+
+    assert result == (2, 0, 0)
+    assert destination.copy_context.rows == [(1, "one"), (2, "two")]
+    assert len(destination.executed) == 4
+
+def test_parallel_writer_uses_independent_destination_and_metadata_session(monkeypatch):
+    run_id, progress_id = uuid4(), uuid4()
+    worker_run = SimpleNamespace(max_retries=0)
+    worker_progress = SimpleNamespace(retry_count=0)
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def get(self, model, _identifier):
+            return worker_run if model is execution.MigrationRun else worker_progress
+
+        def commit(self):
+            return None
+
+        def rollback(self):
+            return None
+
+    class FakeDestination:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    destination = FakeDestination()
+    monkeypatch.setattr(execution, "SessionLocal", FakeSession)
+    monkeypatch.setattr(execution, "_connect", lambda _record: destination)
+    monkeypatch.setattr(
+        execution,
+        "_write_with_isolation",
+        lambda *_args: (2, 0, 0, 0, []),
+    )
+
+    result = execution._write_parallel_batch(
+        run_id, progress_id, object(),
+        SimpleNamespace(destination_schema="public", destination_table="target"),
+        ["id"], {}, ["id"], ["id"],
+        [(1,), (2,)], [(1,), (2,)], "INSERT_ONLY",
+    )
+
+    assert result[:5] == (2, 0, 0, 0, [])
+    assert result[5] >= 0
+    assert destination.closed is True
+
+
+def test_migration_writer_count_is_bounded_and_invalid_values_fall_back(monkeypatch):
+    monkeypatch.setenv("CONDUIT_MIGRATION_WRITERS", "99")
+    assert execution._migration_writer_count() == 4
+
+    monkeypatch.setenv("CONDUIT_MIGRATION_WRITERS", "0")
+    assert execution._migration_writer_count() == 1
+
+    monkeypatch.setenv("CONDUIT_MIGRATION_WRITERS", "not-a-number")
+    assert execution._migration_writer_count() == 2
+
+def test_copy_adaptation_streams_rows_without_flattening_the_batch():
+    rows = [(1, "first"), (2, "second")]
+    adapted = execution._iter_adapted_write_rows(
+        rows, ["id", "value"], {"id": "integer", "value": "text"}
+    )
+    assert iter(adapted) is adapted
+    assert list(adapted) == rows
+
+
+def test_copy_adaptation_reports_row_width_mismatch():
+    try:
+        list(execution._iter_adapted_write_rows(
+            [(1,)], ["id", "value"], {"id": "integer", "value": "text"}
+        ))
+    except ValueError as exc:
+        assert "Batch row 0" in str(exc)
+    else:
+        raise AssertionError("A malformed row must fail before COPY")
+

@@ -5,7 +5,6 @@ import time
 from datetime import UTC, datetime
 
 import psycopg
-from sqlalchemy import func
 
 from app.models.migration_metrics import (
     MigrationBatchMetric,
@@ -15,12 +14,39 @@ from app.models.migration_metrics import (
 )
 
 
+def _estimated_value_bytes(value) -> int:
+    """Cheap in-process payload estimate; deliberately avoids JSON serialization."""
+    if value is None:
+        return 1
+    if isinstance(value, str):
+        return len(value.encode("utf-8"))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return len(value)
+    if isinstance(value, dict):
+        return sum(_estimated_value_bytes(k) + _estimated_value_bytes(v) for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return sum(_estimated_value_bytes(item) for item in value)
+    if isinstance(value, (bool, int, float)):
+        return len(str(value))
+    # Decimal, UUID and temporal types have compact, stable textual forms.
+    return len(str(value).encode("utf-8"))
+
+
 def logical_payload_bytes(rows) -> int:
-    """Return UTF-8 JSON payload size; this is not a network-byte measurement."""
-    return sum(
-        len(json.dumps(row, default=str, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
-        for row in rows
-    )
+    """Estimate logical payload bytes without JSON-encoding every row.
+
+    This is an application-level estimate, not PostgreSQL wire bytes or an
+    exact serialized JSON size. Set CONDUIT_EXACT_LOGICAL_BYTES=1 to restore
+    the slower legacy JSON measurement for diagnostic comparisons.
+    """
+    import os
+
+    if os.getenv("CONDUIT_EXACT_LOGICAL_BYTES", "0").strip() == "1":
+        return sum(
+            len(json.dumps(row, default=str, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+            for row in rows
+        )
+    return sum(_estimated_value_bytes(row) for row in rows)
 
 
 def batch_identity(run_table_id, checkpoint_start, checkpoint_end) -> str:
@@ -96,10 +122,28 @@ def record_committed_batch(
         if logical_payload_size is None
         else logical_payload_size
     )
-    sequence = (
-        db.query(func.coalesce(func.max(MigrationBatchMetric.sequence), 0))
-        .filter_by(run_table_id=progress.id).scalar() or 0
-    ) + 1
+    table_metric = db.query(MigrationTableMetric).filter_by(run_table_id=progress.id).one_or_none()
+    if table_metric is None:
+        table_metric = MigrationTableMetric(
+            run_id=run.id,
+            run_table_id=progress.id,
+            rows_fetched=0,
+            rows_committed=0,
+            batches_committed=0,
+            logical_bytes=0,
+        )
+        db.add(table_metric)
+        # SessionLocal disables autoflush. Without an explicit flush, the next
+        # batch's query cannot see this pending row and creates another metric
+        # with the same unique run_table_id. Flush only this first row; later
+        # batches in the grouped metadata transaction will then load and update it.
+        db.flush()
+    else:
+        _initialize_counters(table_metric, _TABLE_COUNTER_FIELDS)
+
+    # One ordered coordinator updates a table's metric row, so its committed
+    # batch counter is already the next sequence number. Avoid MAX(sequence).
+    sequence = table_metric.batches_committed + 1
     batch_network_rtt_ms = (
         round(sum(network_rtt_ms.values()) / len(network_rtt_ms), 2)
         if isinstance(network_rtt_ms, dict) and network_rtt_ms else network_rtt_ms
@@ -139,24 +183,6 @@ def record_committed_batch(
     run_metric.rows_per_second = run_metric.rows_committed / seconds if seconds else 0
     run_metric.logical_bytes_per_second = run_metric.logical_bytes / seconds if seconds else 0
 
-    table_metric = db.query(MigrationTableMetric).filter_by(run_table_id=progress.id).one_or_none()
-    if table_metric is None:
-        # SQLAlchemy's mapped_column(default=0) is applied at INSERT/flush time,
-        # not necessarily at object construction. These values are incremented
-        # immediately below, so initialize them explicitly here.
-        table_metric = MigrationTableMetric(
-            run_id=run.id,
-            run_table_id=progress.id,
-            rows_fetched=0,
-            rows_committed=0,
-            batches_committed=0,
-            logical_bytes=0,
-        )
-        db.add(table_metric)
-    else:
-        # Defensive handling for legacy rows created before counters were
-        # constrained/defaulted correctly, or databases with schema drift.
-        _initialize_counters(table_metric, _TABLE_COUNTER_FIELDS)
     table_metric.rows_fetched += len(rows)
     table_metric.rows_committed += committed
     table_metric.batches_committed += 1
