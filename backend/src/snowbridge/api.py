@@ -48,6 +48,28 @@ CONNECTIONS: dict[str, dict[str, Any]] = {}
 CONNECTIONS_LOCK = threading.Lock()
 
 
+class ConnectionInput(BaseModel):
+    engine: str = "postgresql"
+    host: str = Field(min_length=1, max_length=255)
+    port: int = Field(default=5432, ge=1, le=65535)
+    database: str = Field(min_length=1, max_length=255)
+    username: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1, max_length=2048)
+    tls: bool = False
+
+
+class DiscoveryRequest(BaseModel):
+    connection: ConnectionInput
+    schemas: list[str] | None = None
+
+
+class MigrationRequest(BaseModel):
+    source: ConnectionInput
+    target: ConnectionInput
+    schemas: list[str] | None = None
+    block_bytes: int = Field(default=1048576, ge=65536, le=16777216)
+
+
 class SavedConnectionRequest(BaseModel):
     connection: ConnectionInput
     name: str = Field(default="Database connection", min_length=1, max_length=100)
@@ -79,28 +101,6 @@ def remove_connection(connection_id: str) -> dict[str, str]:
         if CONNECTIONS.pop(connection_id, None) is None:
             raise HTTPException(404, "Connection not found in this API session.")
     return {"id": connection_id, "status": "removed"}
-
-
-class ConnectionInput(BaseModel):
-    engine: str = "postgresql"
-    host: str = Field(min_length=1, max_length=255)
-    port: int = Field(default=5432, ge=1, le=65535)
-    database: str = Field(min_length=1, max_length=255)
-    username: str = Field(min_length=1, max_length=255)
-    password: str = Field(min_length=1, max_length=2048)
-    tls: bool = False
-
-
-class DiscoveryRequest(BaseModel):
-    connection: ConnectionInput
-    schemas: list[str] | None = None
-
-
-class MigrationRequest(BaseModel):
-    source: ConnectionInput
-    target: ConnectionInput
-    schemas: list[str] | None = None
-    block_bytes: int = Field(default=1048576, ge=65536, le=16777216)
 
 
 def _dsn(value: ConnectionInput) -> str:
