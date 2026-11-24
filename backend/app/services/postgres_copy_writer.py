@@ -25,6 +25,11 @@ def write_copy_batch(
     if not rows:
         return 0, 0, 0
 
+    # Explicit opt-in only: asynchronous commit can lose the most recent
+    # acknowledged batches after an OS/database crash.
+    if os.getenv("CONDUIT_COPY_SYNCHRONOUS_COMMIT", "on").strip().lower() in {"off", "false", "0"}:
+        destination.execute("SET LOCAL synchronous_commit TO OFF")
+
     identity = f"{table.destination_schema}.{table.destination_table}".encode()
     stage_name = "conduit_stage_" + hashlib.sha256(identity).hexdigest()[:16]
     columns_sql = sql.SQL(", ").join(map(sql.Identifier, destination_columns))
