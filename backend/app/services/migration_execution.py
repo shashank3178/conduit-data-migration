@@ -968,18 +968,11 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                         network_rtt_ms=network_rtt,
                         logical_payload_size=batch_logical_bytes,
                     )
-                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, logical_bytes=batch_logical_bytes, duration_ms=duration_ms, source_fetch_duration_ms=fetch_duration_ms, destination_write_duration_ms=destination_write_duration_ms, source_network_rtt_ms=network_rtt["source"], destination_network_rtt_ms=network_rtt["destination"])
+                    _event(db, run, "batch_committed", progress, rows_read=len(batch), inserted=inserted, updated=updated, skipped=skipped, failed=failed, checkpoint=progress.last_key, logical_bytes=batch_logical_bytes, duration_ms=duration_ms, source_fetch_duration_ms=fetch_duration_ms, destination_write_duration_ms=destination_write_duration_ms, source_network_rtt_ms=network_rtt["source"], destination_network_rtt_ms=network_rtt["destination"], batch_cpu_ms=round((time.process_time() - batch_cpu_started) * 1000, 2), process_peak_rss_bytes=_process_peak_rss_bytes())
                     commit_started = time.monotonic()
                     db.commit()
                     metadata_commit_ms = (time.monotonic() - commit_started) * 1000
                     metadata_commit_total_ms += metadata_commit_ms
-                    _event(
-                        db, run, "batch_profiled", progress,
-                        batch_metadata_commit_ms=round(metadata_commit_ms, 2),
-                        batch_cpu_ms=round((time.process_time() - batch_cpu_started) * 1000, 2),
-                        process_peak_rss_bytes=_process_peak_rss_bytes(),
-                    )
-                    db.commit()
                 if _cancel_requested(run_id):
                     progress.status = "cancelled"
                     db.commit()
