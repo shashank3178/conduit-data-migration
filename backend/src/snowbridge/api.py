@@ -181,8 +181,10 @@ def _execute_migration(job_id: str, request: MigrationRequest) -> None:
         if not inventory.tables:
             raise RuntimeError("No accessible base tables were discovered in the selected schemas.")
         _update_job(job_id, total_tables=len(inventory.tables), stage="Checking target compatibility")
-        source_major = int(source.connect().execute("SHOW server_version_num").fetchone()[0]) // 10000
-        target_major = int(target.connect().execute("SHOW server_version_num").fetchone()[0]) // 10000
+        with source.connect() as source_version_conn:
+            source_major = int(source_version_conn.execute("SHOW server_version_num").fetchone()[0]) // 10000
+        with target.connect() as target_version_conn:
+            target_major = int(target_version_conn.execute("SHOW server_version_num").fetchone()[0]) // 10000
         if source_major != target_major:
             raise RuntimeError("Binary COPY demo requires matching PostgreSQL major versions; use a logical row-transfer path for cross-major migrations.")
 
