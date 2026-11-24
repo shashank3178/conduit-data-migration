@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 type Endpoint = { engine: string; host: string; port: number; database: string; username: string; password: string; tls: boolean };
 type Table = { schema_name: string; table_name: string; estimated_rows: number | null; estimated_bytes: number | null; columns: { name: string; native_type: string; nullable: boolean }[]; keys: { name: string; columns: string[]; primary: boolean }[] };
-type Inventory = { tables: Table[]; capabilities: { name: string; status: string; reason: string }[]; warnings: string[]; estimate: { estimated_rows: number; estimated_bytes: number; confidence: string; estimated_duration_seconds: number | null }; table_count: number };
+type Inventory = { tables: Table[]; capabilities: { name: string; status: string; reason: string }[]; warnings: string[]; estimate: { estimated_rows: number; estimated_bytes: number; confidence: string; column_count: number; estimated_duration_seconds: number | null }; table_count: number };
 type Job = { id: string; status: string; stage: string; completed_tables: number; total_tables: number; rows: number; bytes: number; results: { table: string; rows: number; bytes: number; status: string }[]; error?: string; note?: string };
 
 const blank = (): Endpoint => ({ engine: "postgresql", host: "localhost", port: 5432, database: "", username: "", password: "", tls: false });
