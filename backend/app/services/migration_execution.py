@@ -506,6 +506,15 @@ def _write_with_isolation(
     return write_or_split(rows, keys)
     
 
+def _migration_writer_count() -> int:
+    """Keep per-run destination concurrency conservative and configurable."""
+    try:
+        configured = int(os.getenv("CONDUIT_MIGRATION_WRITERS", "2"))
+    except (TypeError, ValueError):
+        configured = 2
+    return max(1, min(4, configured))
+
+
 def _write_parallel_batch(
     run_id,
     progress_id,
@@ -975,7 +984,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 # keyset batch while independent destination connections write
                 # earlier batches. Checkpoints are still committed strictly in
                 # source-key order, so last_key can never jump over a failed batch.
-                writer_count = max(1, min(4, int(os.getenv("CONDUIT_MIGRATION_WRITERS", "2"))))
+                writer_count = _migration_writer_count()
                 max_in_flight = max(writer_count, writer_count * 2)
                 pending = deque()
 
