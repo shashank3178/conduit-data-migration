@@ -79,6 +79,8 @@ class MySQLAdapter:
                     ORDER BY TABLE_SCHEMA,TABLE_NAME""", selected)
             result=[]
             for schema, table, rows, size, engine, comment in cur.fetchall():
+                cur.execute("SELECT COUNT(*) FROM information_schema.PARTITIONS WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s AND PARTITION_NAME IS NOT NULL",(schema,table))
+                partitioned=bool(cur.fetchone()[0])
                 cur.execute("""SELECT COLUMN_NAME,ORDINAL_POSITION,COLUMN_TYPE,IS_NULLABLE,
                     NUMERIC_PRECISION,NUMERIC_SCALE,CHARACTER_MAXIMUM_LENGTH,COLUMN_DEFAULT,
                     EXTRA,COLLATION_NAME FROM information_schema.COLUMNS
@@ -103,7 +105,7 @@ class MySQLAdapter:
                 keys=tuple(Key(n,tuple(c for _,c in sorted(cols)),n=="PRIMARY",unique[n])
                     for n,cols in groups.items() if unique[n] and (n=="PRIMARY" or all(not nullable_by_name.get(c,True) for _,c in cols)))
                 result.append(TableSchema(str(schema),str(table),columns,keys,
-                    max(0,int(rows)) if rows is not None else None,False,
+                    max(0,int(rows)) if rows is not None else None,partitioned,
                     estimated_bytes=max(0,int(size)) if size is not None else None,
                     storage_engine=str(engine) if engine else None,comment=str(comment or "")))
             return result
