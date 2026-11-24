@@ -2,9 +2,9 @@
 import logging
 import math
 import os
+import sys
 import time
 import uuid
-import sys
 from datetime import UTC, date, datetime
 from datetime import time as datetime_time
 from decimal import Decimal
@@ -16,8 +16,37 @@ logger = logging.getLogger(__name__)
 
 def _process_peak_rss_bytes() -> int | None:
     """Best-effort process peak RSS; unavailable on platforms without resource."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", ctypes.c_ulong),
+                    ("PageFaultCount", ctypes.c_ulong),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(counters)
+            process = ctypes.windll.kernel32.GetCurrentProcess()
+            ok = ctypes.windll.psapi.GetProcessMemoryInfo(
+                process, ctypes.byref(counters), counters.cb
+            )
+            return int(counters.PeakWorkingSetSize) if ok else None
+        except (AttributeError, OSError):
+            return None
+
     try:
         import resource
+
         value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         # Linux reports KiB; macOS reports bytes.
         return int(value if sys.platform == "darwin" else value * 1024)
@@ -782,7 +811,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
     source = destination = None
     run_wall_started = time.monotonic()
     run_cpu_started = time.process_time()
-    metadata_commit_total_ms = 0.0
+    batch_metadata_commit_total_ms = 0.0
     with SessionLocal() as db:
         run = db.get(MigrationRun, run_id)
         if not run or run.status not in {"queued", "running"}:
