@@ -501,13 +501,21 @@ def _write_with_isolation(
     return write_or_split(rows, keys)
     
 
-def _migration_writer_count() -> int:
-    """Keep per-run destination concurrency conservative and configurable."""
-    try:
-        configured = int(os.getenv("CONDUIT_MIGRATION_WRITERS", "2"))
-    except (TypeError, ValueError):
-        configured = 2
-    return max(1, min(4, configured))
+def _migration_writer_count(destination) -> int:
+    """Choose writer concurrency from database headroom and local CPU capacity."""
+    from app.services.execution_scheduler import AdaptiveConcurrencyController
+
+    plan = AdaptiveConcurrencyController().plan(destination)
+    logger.info(
+        "Adaptive migration concurrency selected",
+        extra={
+            "writer_count": plan.workers,
+            "connection_budget": plan.connection_budget,
+            "database_connections_in_use": plan.database_connections_in_use,
+            "scheduler_reason": plan.reason,
+        },
+    )
+    return plan.workers
 
 
 def _write_parallel_batch(
@@ -574,7 +582,7 @@ def _write_parallel_batch(
                 worker_db.commit()
                 if attempt >= worker_run.max_retries:
                     raise
-                time.sleep(min(2 ** attempt, 8))
+                time.sleep(min(0.5 * (2 ** attempt), 8.0))
     raise RuntimeError("Parallel destination writer exhausted retries.")
 
 
@@ -929,9 +937,12 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
             record_database_snapshot(db, run, source_record, "source", source)
             record_database_snapshot(db, run, destination_record, "destination", destination)
             db.commit()
-            tables = db.query(MigrationPlanTable).filter_by(plan_id=plan.id, selected=True).order_by(
-                MigrationPlanTable.source_schema, MigrationPlanTable.source_table
-            ).all()
+            tables = db.query(MigrationPlanTable).filter_by(plan_id=plan.id, selected=True).all()
+            from app.services.execution_scheduler import resource_aware_table_order
+
+            progress_rows = db.query(MigrationRunTable).filter_by(run_id=run_id).all()
+            progress_by_plan_table = {item.plan_table_id: item for item in progress_rows}
+            tables = resource_aware_table_order(tables, progress_by_plan_table)
 
             for table in tables:
                 if _cancel_requested(run_id):
@@ -1010,7 +1021,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                 # keyset batch while independent destination connections write
                 # earlier batches. Checkpoints are still committed strictly in
                 # source-key order, so last_key can never jump over a failed batch.
-                writer_count = _migration_writer_count()
+                writer_count = _migration_writer_count(destination)
                 max_in_flight = max(writer_count, writer_count * 2)
                 pending = deque()
                 metadata_batches_pending = 0
