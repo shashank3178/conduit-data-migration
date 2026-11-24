@@ -20,7 +20,24 @@ class ApiSurfaceTests(unittest.TestCase):
             host="localhost", database="sample", username="reader", password="secret"
         )
         self.assertEqual(value.engine, "postgresql")
-        self.assertFalse(value.tls)
+        self.assertTrue(value.tls)
+        self.assertEqual(value.sslmode, "require")
+        self.assertEqual(value.connect_timeout, 10)
+
+    def test_postgres_connection_options_are_validated_and_encoded(self):
+        from snowbridge.api import _dsn
+        value = ConnectionInput(
+            host="ep-example-pooler.ap-southeast-1.aws.neon.tech",
+            database="app db", username="owner@example", password="p@ss/word",
+            sslmode="verify-full", connect_timeout=25, hostaddr="203.0.113.10",
+            application_name="snowbridge test",
+        )
+        dsn = _dsn(value)
+        self.assertIn("sslmode=verify-full", dsn)
+        self.assertIn("connect_timeout=25", dsn)
+        self.assertIn("hostaddr=203.0.113.10", dsn)
+        self.assertIn("application_name=snowbridge+test", dsn)
+        self.assertIn("p%40ss%2Fword", dsn)
 
     def test_api_discovery_accepts_schema_scope(self):
         request = DiscoveryRequest(
