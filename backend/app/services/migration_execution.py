@@ -1074,7 +1074,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
             run.status = "cancelled" if cancelled else ("partially_failed" if run.failed_rows or run.mismatch_rows else "completed")
             run.finished_at = datetime.now(UTC)
             run.heartbeat_at = datetime.now(UTC)
-            wall_elapsed_ms = (time.monotonic() - run_wall_started) * 1000
+            wall_elapsed_ms = max(0.0, (run.finished_at - run.started_at).total_seconds() * 1000) if run.started_at else (time.monotonic() - run_wall_started) * 1000
             logical_bytes_total = ensure_run_metric(db, run).logical_bytes
             _event(
                 db, run, "run_finished",
@@ -1107,7 +1107,7 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     f"{_execution_error_detail(exc)}"
                 )[:1200]
                 failed_run.finished_at = datetime.now(UTC)
-                elapsed_ms = (time.monotonic() - run_wall_started) * 1000
+                elapsed_ms = max(0.0, (failed_run.finished_at - failed_run.started_at).total_seconds() * 1000) if failed_run.started_at else (time.monotonic() - run_wall_started) * 1000
                 _event(
                     db, failed_run, "run_failed",
                     error_type=type(exc).__name__,
