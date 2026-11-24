@@ -335,3 +335,59 @@ def test_checkpoint_restores_float_and_time_primary_keys():
     values = (12.5, time(9, 30, 15))
     metadata = [{"type": "DOUBLE PRECISION"}, {"type": "TIME"}]
     assert _restore_key(_json_key(values), metadata) == values
+
+
+def test_copy_staging_writer_copies_then_merges_and_clears_stage():
+    from app.services.postgres_copy_writer import write_copy_batch
+
+    class FakeCopy:
+        def __init__(self):
+            self.rows = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def write_row(self, row):
+            self.rows.append(tuple(row))
+
+    class FakeCursor:
+        def __init__(self, copy_context):
+            self.copy_context = copy_context
+
+        def copy(self, _query):
+            return self.copy_context
+
+    class FakeCopyDestination:
+        def __init__(self):
+            self.copy_context = FakeCopy()
+            self.executed = []
+
+        def execute(self, query):
+            self.executed.append(query)
+            if len(self.executed) == 3:
+                return FakeResult([(True,), (True,)])
+            return FakeResult([])
+
+        def cursor(self):
+            return FakeCursor(self.copy_context)
+
+    destination = FakeCopyDestination()
+    table = SimpleNamespace(destination_schema="public", destination_table="target")
+
+    result = write_copy_batch(
+        destination,
+        table,
+        ["id", "value"],
+        ["id"],
+        [(1, "one"), (2, "two")],
+        "INSERT_ONLY",
+        {},
+        lambda rows, _columns, _types: [value for row in rows for value in row],
+    )
+
+    assert result == (2, 0, 0)
+    assert destination.copy_context.rows == [(1, "one"), (2, "two")]
+    assert len(destination.executed) == 4
