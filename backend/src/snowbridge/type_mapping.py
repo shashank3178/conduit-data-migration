@@ -45,7 +45,7 @@ def map_type(
         ):
             length = int(modifier.group(1))
 
-    base = re.sub(r"\(\d+(?:,\s*\d+)?\)", "", raw).strip()
+    base = re.sub(r"\(.*\)", "", raw).strip()
     unsigned = "unsigned" in raw
     base = re.sub(r"\s+unsigned$", "", base)
 
@@ -72,8 +72,18 @@ def map_type(
             reason = "Unsigned source range requires validation against the wider target type."
     elif base in {"mediumint", "bigint", "bigserial"}:
         target = "bigint"
-    elif base in {"number", "numeric", "decimal", "dec"}:
+        if src == "mysql" and base == "bigint" and unsigned:
+            target = "numeric(20,0)"
+            safety = MappingSafety.WARNING
+            reason = "MySQL BIGINT UNSIGNED exceeds PostgreSQL signed BIGINT range."
+    elif base in {"number", "numeric", "decimal", "dec", "money"}:
         target = f"numeric({precision},{scale})" if precision is not None and scale is not None else "numeric"
+        if base == "money":
+            safety = MappingSafety.WARNING
+            reason = "Currency precision and locale formatting must be normalized explicitly."
+        if unsigned and src == "mysql":
+            safety = MappingSafety.WARNING
+            reason = "Unsigned DECIMAL requires a non-negative range constraint to be preserved."
         if src == "oracle" and precision is None:
             safety = MappingSafety.WARNING
             reason = "Unconstrained Oracle NUMBER requires value-range profiling."
@@ -85,9 +95,9 @@ def map_type(
         target = "boolean" if length in (None, 1) else "bit varying"
     elif base in {"varchar", "varchar2", "nvarchar2", "character varying", "char", "nchar", "character"}:
         target = f"varchar({length})" if length else "text"
-    elif base in {"text", "tinytext", "mediumtext", "longtext", "clob", "nclob"}:
+    elif base in {"text", "tinytext", "mediumtext", "longtext", "clob", "nclob", "long"}:
         target = "text"
-        if base in {"clob", "nclob", "longtext"}:
+        if base in {"clob", "nclob", "longtext", "long"}:
             safety = MappingSafety.WARNING
             reason = "Large-object streaming and character-set semantics require validation."
     elif base in {"blob", "tinyblob", "mediumblob", "longblob", "bytea", "raw", "long raw", "bfile"}:
