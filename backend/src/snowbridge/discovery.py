@@ -54,7 +54,11 @@ def discover_inventory(adapter:Any,source_engine:str,target_engine:str|None=None
                        schemas:Sequence[str]|None=None)->SchemaInventory:
     engine=normalize_engine(source_engine)
     caps=tuple(adapter.inspect_capabilities()); tables=tuple(adapter.discover_schema(schemas))
-    mappings=[]; unsupported=[]; warnings=[\n        "Inventory scope is base tables, columns and primary/usable unique keys; views, foreign keys, checks, standalone indexes, sequences, triggers, routines and grants are not yet inventoried."\n    ]
+    mappings = []
+    unsupported = []
+    warnings = [
+        "Inventory scope is base tables, columns and primary/usable unique keys; views, foreign keys, checks, standalone indexes, sequences, triggers, routines and grants are not yet inventoried."
+    ]
     if target_engine:
         target=normalize_engine(target_engine)
         for table in tables:
