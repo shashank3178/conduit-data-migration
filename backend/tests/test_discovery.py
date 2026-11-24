@@ -20,6 +20,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(report.estimate.estimated_bytes,8192)
         self.assertEqual(len(report.mappings),2)
         self.assertEqual(report.unsupported_mappings,())
+        self.assertTrue(any("Inventory scope" in warning for warning in report.warnings))
 
     def test_unknown_estimates_are_reported(self):
         estimate=estimate_migration([TableSchema("s","t",(Column("id",1,"int",False),))])

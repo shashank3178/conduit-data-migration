@@ -122,7 +122,7 @@ Implemented on `v2/rebuild`:
 - [x] Secret-reference based connection specification and adapter construction for PostgreSQL, MySQL and Oracle; passwords are resolved only at runtime.
 - [x] Optional MySQL Connector/Python and python-oracledb dependencies; PostgreSQL remains the default dependency.
 - [x] PostgreSQL catalog inventory for tables, ordered columns, defaults, generated/identity markers, primary/usable unique keys, partition flags, row estimates and relation bytes.
-- [x] MySQL information_schema inventory for base tables, ordered columns, native type modifiers, nullability, defaults, generated/auto-increment markers, collations, indexes/unique keys, engine, comments and catalog row/byte estimates.
+- [x] MySQL information_schema inventory for base tables, ordered columns, native type modifiers, nullability, defaults, generated/auto-increment markers, collations, unique indexes/keys, engine, comments and catalog row/byte estimates.
 - [x] Oracle ALL_TABLES/ALL_TAB_COLS/ALL_CONSTRAINTS inventory for accessible owners, ordered visible columns, precision/scale/length, defaults, virtual/identity markers, enabled primary/unique constraints, partition flags, comments and statistics-based estimates.
 - [x] Shared schema IR extended with catalog byte estimates, storage-engine metadata, comments, indexes, foreign-key and check-constraint extension points.
 - [x] Unified capability preflight surfaces configuration and privilege requirements separately from availability.
