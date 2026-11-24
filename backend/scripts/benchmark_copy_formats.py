@@ -29,7 +29,6 @@ def benchmark(connection, row_count: int, repeats: int, copy_format: str) -> lis
                 copy.set_types(["int8", "text"])
             for row_id in range(row_count):
                 copy.write_row((row_id, f"payload-{row_id:012d}-" + ("x" * 96)))
-        elapsed = time.perf_counter() - started
         actual = connection.execute("SELECT count(*) FROM conduit_copy_benchmark").fetchone()[0]
         if actual != row_count:
             raise RuntimeError(f"{copy_format} COPY inserted {actual:,} rows; expected {row_count:,}")
