@@ -73,12 +73,7 @@ def write_copy_batch(
     )
     destination.execute(sql.SQL("TRUNCATE TABLE {}").format(stage))
 
-    flat_values = adapt_values(rows, destination_columns, destination_column_types)
-    width = len(destination_columns)
-    adapted_rows = (
-        tuple(flat_values[offset:offset + width])
-        for offset in range(0, len(flat_values), width)
-    )
+    adapted_rows = adapt_values(rows, destination_columns, destination_column_types)
     copy_format = os.getenv("CONDUIT_COPY_FORMAT", "text").strip().lower()
     if copy_format not in {"text", "binary"}:
         copy_format = "text"
