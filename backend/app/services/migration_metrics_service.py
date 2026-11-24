@@ -1,6 +1,7 @@
 """Idempotent migration metrics and PostgreSQL storage measurements."""
 import hashlib
 import json
+import sys
 import time
 from datetime import UTC, datetime
 
@@ -15,12 +16,39 @@ from app.models.migration_metrics import (
 )
 
 
+def _estimated_value_bytes(value) -> int:
+    """Cheap in-process payload estimate; deliberately avoids JSON serialization."""
+    if value is None:
+        return 1
+    if isinstance(value, str):
+        return len(value.encode("utf-8"))
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return len(value)
+    if isinstance(value, dict):
+        return sum(_estimated_value_bytes(k) + _estimated_value_bytes(v) for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return sum(_estimated_value_bytes(item) for item in value)
+    if isinstance(value, (bool, int, float)):
+        return len(str(value))
+    # Decimal, UUID and temporal types have compact, stable textual forms.
+    return len(str(value).encode("utf-8"))
+
+
 def logical_payload_bytes(rows) -> int:
-    """Return UTF-8 JSON payload size; this is not a network-byte measurement."""
-    return sum(
-        len(json.dumps(row, default=str, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
-        for row in rows
-    )
+    """Estimate logical payload bytes without JSON-encoding every row.
+
+    This is an application-level estimate, not PostgreSQL wire bytes or an
+    exact serialized JSON size. Set CONDUIT_EXACT_LOGICAL_BYTES=1 to restore
+    the slower legacy JSON measurement for diagnostic comparisons.
+    """
+    import os
+
+    if os.getenv("CONDUIT_EXACT_LOGICAL_BYTES", "0").strip() == "1":
+        return sum(
+            len(json.dumps(row, default=str, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+            for row in rows
+        )
+    return sum(_estimated_value_bytes(row) for row in rows)
 
 
 def batch_identity(run_table_id, checkpoint_start, checkpoint_end) -> str:
