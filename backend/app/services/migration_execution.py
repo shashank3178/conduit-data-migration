@@ -3,6 +3,7 @@ import logging
 import math
 import os
 import sys
+import threading
 import time
 import uuid
 from collections import deque
@@ -41,6 +42,7 @@ from app.services.migration_metrics_service import (
 from app.services.postgres_copy_writer import write_copy_batch
 
 logger = logging.getLogger(__name__)
+_writer_local = threading.local()
 
 
 def _process_peak_rss_bytes() -> int | None:
@@ -527,6 +529,8 @@ def _write_parallel_batch(
     rows,
     keys,
     strategy,
+    connection_registry,
+    connection_registry_lock,
 ):
     """Write one batch on an independent destination connection and DB session."""
     started = time.monotonic()
@@ -537,9 +541,17 @@ def _write_parallel_batch(
             raise RuntimeError("Migration run or table progress disappeared during parallel write.")
 
         for attempt in range(worker_run.max_retries + 1):
-            destination = None
+            destination = getattr(_writer_local, "destination", None)
+            destination_id = getattr(_writer_local, "destination_id", None)
             try:
-                destination = _connect(destination_record)
+                if destination is None or destination_id != destination_record.id:
+                    if destination is not None:
+                        destination.close()
+                    destination = _connect(destination_record)
+                    _writer_local.destination = destination
+                    _writer_local.destination_id = destination_record.id
+                    with connection_registry_lock:
+                        connection_registry.append(destination)
                 result = _write_with_isolation(
                     destination,
                     worker_db,
@@ -554,18 +566,22 @@ def _write_parallel_batch(
                     keys,
                     strategy,
                 )
-                worker_db.commit()
+                if worker_db.new or worker_db.dirty or worker_db.deleted:
+                    worker_db.commit()
                 return (*result, round((time.monotonic() - started) * 1000, 2))
             except psycopg.OperationalError:
                 worker_db.rollback()
+                if destination is not None:
+                    try:
+                        destination.close()
+                    finally:
+                        _writer_local.destination = None
+                        _writer_local.destination_id = None
                 worker_progress.retry_count += 1
                 worker_db.commit()
                 if attempt >= worker_run.max_retries:
                     raise
                 time.sleep(min(2 ** attempt, 8))
-            finally:
-                if destination is not None:
-                    destination.close()
     raise RuntimeError("Parallel destination writer exhausted retries.")
 
 
@@ -1056,6 +1072,8 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                     db.commit()
                     metadata_commit_total_ms += (time.monotonic() - commit_started) * 1000
 
+                writer_connections = []
+                writer_connections_lock = threading.Lock()
                 with ThreadPoolExecutor(
                     max_workers=writer_count,
                     thread_name_prefix=f"migration-writer-{str(run_id)[:8]}",
@@ -1105,6 +1123,8 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
                             batch,
                             batch_keys,
                             run.write_strategy,
+                            writer_connections,
+                            writer_connections_lock,
                         )
                         pending.append((
                             future, batch, batch_keys, checkpoint_start,
@@ -1119,6 +1139,12 @@ def execute_run(run_id: uuid.UUID, worker_id: str | None = None) -> None:
 
                     while pending:
                         commit_written_batch(pending.popleft())
+
+                for writer_connection in writer_connections:
+                    try:
+                        writer_connection.close()
+                    except psycopg.Error:
+                        logger.warning("Failed to close a migration writer connection", exc_info=True)
                 if _cancel_requested(run_id):
                     progress.status = "cancelled"
                     db.commit()
