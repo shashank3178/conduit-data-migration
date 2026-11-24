@@ -234,50 +234,43 @@ def _get_destination_column_types(destination, table, destination_columns):
     return column_types
 
 
-def _adapt_write_values(rows, destination_columns, column_types):
-    """
-    Adapt Python values to their destination PostgreSQL types.
+def _adapt_write_row(row, row_index, destination_columns, column_types):
+    if len(row) != len(destination_columns):
+        raise ValueError(
+            f"Batch row {row_index} has {len(row)} values, "
+            f"but {len(destination_columns)} destination columns."
+        )
 
-    JSON dictionaries and arrays are explicitly wrapped using Psycopg's
-    JSON adapters. Other values retain their original representation.
-    """
-    flat_values = []
-
-    for row_index, row in enumerate(rows):
-        if len(row) != len(destination_columns):
-            raise ValueError(
-                f"Batch row {row_index} has {len(row)} values, "
-                f"but {len(destination_columns)} destination columns."
+    adapted = []
+    for column, value in zip(destination_columns, row, strict=True):
+        destination_type = column_types.get(column, "").lower()
+        if isinstance(value, (dict, list)) and destination_type in {"json", "jsonb"}:
+            value = Json(value) if destination_type == "json" else Jsonb(value)
+        elif isinstance(value, dict):
+            raise TypeError(
+                f"Unsupported dictionary value during migration. "
+                f"Destination column: {column}; "
+                f"destination PostgreSQL type: {destination_type}; "
+                f"Python source type: dict. "
+                f"Map this column to a JSON or JSONB destination column."
             )
+        adapted.append(value)
+    return tuple(adapted)
 
-        for column, value in zip(
-            destination_columns,
-            row,
-            strict=True,
-        ):
-            destination_type = column_types.get(column, "").lower()
 
-            if isinstance(value, (dict, list)) and destination_type in {
-                "json",
-                "jsonb",
-            }:
-                if destination_type == "json":
-                    value = Json(value)
-                else:
-                    value = Jsonb(value)
+def _iter_adapted_write_rows(rows, destination_columns, column_types):
+    """Adapt one row at a time to avoid a second batch-sized flat-value list."""
+    for row_index, row in enumerate(rows):
+        yield _adapt_write_row(row, row_index, destination_columns, column_types)
 
-            elif isinstance(value, dict):
-                raise TypeError(
-                    f"Unsupported dictionary value during migration. "
-                    f"Destination column: {column}; "
-                    f"destination PostgreSQL type: {destination_type}; "
-                    f"Python source type: dict. "
-                    f"Map this column to a JSON or JSONB destination column."
-                )
 
-            flat_values.append(value)
-
-    return flat_values
+def _adapt_write_values(rows, destination_columns, column_types):
+    """Flatten adapted values for the VALUES fallback writer."""
+    return [
+        value
+        for row_index, row in enumerate(rows)
+        for value in _adapt_write_row(row, row_index, destination_columns, column_types)
+    ]
 
 
 def _write_batch(
@@ -311,7 +304,7 @@ def _write_batch(
             rows,
             strategy,
             destination_column_types or {},
-            _adapt_write_values,
+            _iter_adapted_write_rows,
         )
 
     width = len(destination_columns)
