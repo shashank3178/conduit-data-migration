@@ -22,6 +22,7 @@ class MigrationEstimate:
     unknown_size_tables:tuple[str,...]
     confidence:str
     assumptions:tuple[str,...]
+    estimated_duration_seconds:float|None
 @dataclass(frozen=True,slots=True)
 class SchemaInventory:
     engine:str
@@ -33,7 +34,9 @@ class SchemaInventory:
     warnings:tuple[str,...]
     estimate:MigrationEstimate
 
-def estimate_migration(tables:Sequence[TableSchema])->MigrationEstimate:
+def estimate_migration(tables:Sequence[TableSchema],effective_bytes_per_second:float|None=None)->MigrationEstimate:
+    if effective_bytes_per_second is not None and effective_bytes_per_second <= 0:
+        raise ValueError("effective_bytes_per_second must be positive")
     rows=size=0; unknown_rows=[]; unknown_size=[]
     for t in tables:
         name=f"{t.schema_name}.{t.table_name}"
@@ -48,7 +51,8 @@ def estimate_migration(tables:Sequence[TableSchema])->MigrationEstimate:
         ("Catalog row/byte estimates are not snapshot-exact counts.",
          "InnoDB TABLE_ROWS and PostgreSQL reltuples are approximate.",
          "Oracle NUM_ROWS/blocks depend on optimizer statistics freshness.",
-         "LOB payload, compression, target indexes and conversion overhead may change final size."))
+         "LOB payload, compression, target indexes and conversion overhead may change final size."),
+        size / effective_bytes_per_second if effective_bytes_per_second is not None and not unknown_size else None)
 
 def discover_inventory(adapter:Any,source_engine:str,target_engine:str|None=None,
                        schemas:Sequence[str]|None=None)->SchemaInventory:

@@ -28,6 +28,14 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(estimate.unknown_row_tables,("s.t",))
         self.assertEqual(estimate.unknown_size_tables,("s.t",))
 
+    def test_duration_is_only_estimated_when_throughput_is_supplied(self):
+        tables=FakeAdapter().discover_schema()
+        self.assertIsNone(estimate_migration(tables).estimated_duration_seconds)
+        estimate=estimate_migration(tables,effective_bytes_per_second=1024)
+        self.assertEqual(estimate.estimated_duration_seconds,8.0)
+        with self.assertRaises(ValueError):
+            estimate_migration(tables,effective_bytes_per_second=0)
+
     def test_unsigned_mysql_integer_requires_wider_target(self):
         mapping=map_type("mysql","postgresql","int unsigned")
         self.assertEqual(mapping.target_type,"bigint")
