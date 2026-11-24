@@ -44,6 +44,41 @@ app.add_middleware(
 
 JOBS: dict[str, dict[str, Any]] = {}
 JOBS_LOCK = threading.Lock()
+CONNECTIONS: dict[str, dict[str, Any]] = {}
+CONNECTIONS_LOCK = threading.Lock()
+
+
+class SavedConnectionRequest(BaseModel):
+    connection: ConnectionInput
+    name: str = Field(default="Database connection", min_length=1, max_length=100)
+
+
+@app.get("/api/connections")
+def list_connections() -> list[dict[str, Any]]:
+    with CONNECTIONS_LOCK:
+        return [
+            {"id": key, "name": item["name"], "engine": item["connection"].engine,
+             "host": item["connection"].host, "port": item["connection"].port,
+             "database": item["connection"].database, "username": item["connection"].username,
+             "tls": item["connection"].tls}
+            for key, item in CONNECTIONS.items()
+        ]
+
+
+@app.post("/api/connections")
+def add_connection(request: SavedConnectionRequest) -> dict[str, str]:
+    connection_id = str(uuid.uuid4())
+    with CONNECTIONS_LOCK:
+        CONNECTIONS[connection_id] = {"name": request.name, "connection": request.connection}
+    return {"id": connection_id, "status": "saved_in_session"}
+
+
+@app.delete("/api/connections/{connection_id}")
+def remove_connection(connection_id: str) -> dict[str, str]:
+    with CONNECTIONS_LOCK:
+        if CONNECTIONS.pop(connection_id, None) is None:
+            raise HTTPException(404, "Connection not found in this API session.")
+    return {"id": connection_id, "status": "removed"}
 
 
 class ConnectionInput(BaseModel):
