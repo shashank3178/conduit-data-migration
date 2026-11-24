@@ -41,12 +41,26 @@ class OracleAdapter:
             version_text=str(version[0][0]) if version else "unknown"
             privs={str(r[0]).upper() for r in self._query(conn,"SELECT privilege FROM session_privs")}
             logminer=("LOGMINING" in privs or "SELECT ANY TRANSACTION" in privs)
+            try:
+                log_settings=self._query(conn,"SELECT log_mode,supplemental_log_data_min FROM v$database")
+            except Exception:
+                log_settings=[]
+            if not logminer:
+                log_status=CapabilityStatus.REQUIRES_PERMISSION
+                log_reason="Grant LOGMINING or SELECT ANY TRANSACTION; database logging configuration cannot yet be approved."
+            elif not log_settings:
+                log_status=CapabilityStatus.REQUIRES_PERMISSION
+                log_reason="The role cannot inspect V$DATABASE; grant the required catalog visibility to verify ARCHIVELOG and supplemental logging."
+            elif str(log_settings[0][0]).upper() != "ARCHIVELOG" or str(log_settings[0][1]).upper() not in {"YES","IMPLICIT"}:
+                log_status=CapabilityStatus.REQUIRES_CONFIGURATION
+                log_reason=f"ARCHIVELOG and minimal supplemental logging are required; current values are {log_settings[0]!r}."
+            else:
+                log_status=CapabilityStatus.AVAILABLE
+                log_reason="LogMiner privileges, ARCHIVELOG mode and minimal supplemental logging were verified."
             return (
                 Capability("consistent_scn_read",CapabilityStatus.AVAILABLE,
                     "Flashback query at a consistent SCN is available subject to UNDO retention."),
-                Capability("logminer",CapabilityStatus.AVAILABLE if logminer else CapabilityStatus.REQUIRES_PERMISSION,
-                    "LogMiner privileges are present." if logminer else
-                    "Grant approved LogMiner/transaction-query privileges and configure ARCHIVELOG and supplemental logging.",
+                Capability("logminer",log_status,log_reason,
                     requirements=("ARCHIVELOG","supplemental logging","adequate UNDO/archive retention"),
                     permission_checks=("LOGMINING or SELECT ANY TRANSACTION",)),
                 Capability("direct_path_load",CapabilityStatus.AVAILABLE,
@@ -59,7 +73,9 @@ class OracleAdapter:
         conn=self.connect()
         try:
             owners=[s.upper() for s in schemas] if schemas else [
-                str(self._query(conn,"SELECT SYS_CONTEXT('USERENV','CURRENT_SCHEMA') FROM dual")[0][0])]
+                str(r[0]) for r in self._query(conn,
+                    "SELECT DISTINCT owner FROM all_tables WHERE owner NOT IN "
+                    "('SYS','SYSTEM','OUTLN','DBSNMP','XDB','CTXSYS','MDSYS','ORDSYS') ORDER BY owner")]
             result=[]
             for owner in owners:
                 tables=self._query(conn,"""SELECT t.table_name,t.num_rows,t.avg_row_len,
