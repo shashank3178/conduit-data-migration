@@ -95,7 +95,7 @@ class PostgresAdapter:
             else:
                 rows = conn.execute(
                     """
-                    SELECT n.nspname, c.relname, c.reltuples::bigint, c.relkind = 'p'
+                    SELECT n.nspname, c.relname, c.reltuples::bigint, c.relkind = 'p', pg_total_relation_size(c.oid)
                     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
                     WHERE c.relkind IN ('r','p')
                       AND n.nspname NOT IN ('pg_catalog','information_schema')
@@ -160,7 +160,7 @@ class PostgresAdapter:
                                  primary=bool(k[1]), unique=bool(k[2]))
                              for k in key_rows)
                 result.append(TableSchema(schema_name, table_name, columns, keys,
-                                          max(0, int(estimate)) if estimate is not None else None,
+                                          int(estimate) if estimate is not None and int(estimate) >= 0 else None,
                                           bool(partitioned),
                                           estimated_bytes=max(0, int(estimated_bytes)) if estimated_bytes is not None else None,
                                           storage_engine="postgresql"))

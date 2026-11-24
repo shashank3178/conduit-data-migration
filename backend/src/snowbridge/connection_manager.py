@@ -2,7 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import quote_plus
+from urllib.parse import quote
 from snowbridge.contracts import SecretProvider,SecretReference
 from snowbridge.type_mapping import normalize_engine
 
@@ -30,15 +30,15 @@ class ConnectionManager:
         if spec.engine=="postgresql":
             from snowbridge.adapters.postgresql import PostgresAdapter,PostgresEndpoint
             port=spec.port or 5432
-            dsn=(f"postgresql://{quote_plus(spec.username)}:{quote_plus(password)}@{spec.host}:{port}/"
-                 f"{quote_plus(spec.database)}?connect_timeout={spec.connect_timeout_seconds}"
+            dsn=(f"postgresql://{quote(spec.username,safe='')}:{quote(password,safe='')}@{spec.host}:{port}/"
+                 f"{quote(spec.database,safe='')}?connect_timeout={spec.connect_timeout_seconds}"
                  f"&sslmode={'require' if spec.tls_required else 'prefer'}")
             return PostgresAdapter(PostgresEndpoint(dsn,spec.connect_timeout_seconds))
         if spec.engine=="mysql":
             from snowbridge.adapters.mysql import MySQLAdapter,MySQLEndpoint
             return MySQLAdapter(MySQLEndpoint(spec.host,spec.database,spec.username,password,
                 port=spec.port or 3306,connect_timeout=spec.connect_timeout_seconds,
-                ssl_ca=secret.get("ssl_ca") if spec.tls_required else None))
+                ssl_ca=secret.get("ssl_ca") if spec.tls_required else None,tls_required=spec.tls_required))
         from snowbridge.adapters.oracle import OracleAdapter,OracleEndpoint
         return OracleAdapter(OracleEndpoint(spec.username,password,spec.database,spec.connect_timeout_seconds))
     def test_connection(self,spec:ConnectionSpec)->dict[str,Any]:

@@ -17,6 +17,7 @@ class MySQLEndpoint:
     port: int = 3306
     connect_timeout: int = 10
     ssl_ca: str | None = None
+    tls_required: bool = True
 
 class MySQLAdapter:
     def __init__(self, endpoint: MySQLEndpoint):
@@ -29,8 +30,11 @@ class MySQLAdapter:
             database=self.endpoint.database, user=self.endpoint.username,
             password=self.endpoint.password, connection_timeout=self.endpoint.connect_timeout,
             autocommit=True)
-        if self.endpoint.ssl_ca:
-            options.update(ssl_ca=self.endpoint.ssl_ca, ssl_verify_cert=True)
+        if self.endpoint.tls_required:
+            options['ssl_verify_cert'] = True
+            options['ssl_verify_identity'] = True
+            if self.endpoint.ssl_ca:
+                options['ssl_ca'] = self.endpoint.ssl_ca
         return mysql_connector.connect(**options)
 
     def inspect_capabilities(self) -> Sequence[Capability]:
@@ -95,8 +99,9 @@ class MySQLAdapter:
                     if col is not None:
                         groups.setdefault(str(name),[]).append((int(seq),str(col)))
                         unique[str(name)]=not bool(non_unique)
+                nullable_by_name={c.name:c.nullable for c in columns}
                 keys=tuple(Key(n,tuple(c for _,c in sorted(cols)),n=="PRIMARY",unique[n])
-                    for n,cols in groups.items() if unique[n])
+                    for n,cols in groups.items() if unique[n] and (n=="PRIMARY" or all(not nullable_by_name.get(c,True) for _,c in cols)))
                 result.append(TableSchema(str(schema),str(table),columns,keys,
                     max(0,int(rows)) if rows is not None else None,False,
                     estimated_bytes=max(0,int(size)) if size is not None else None,

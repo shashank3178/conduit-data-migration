@@ -18,7 +18,7 @@ def map_type(source_engine:str,target_engine:str,native_type:str,precision:int|N
     target=None; safety=MappingSafety.AUTOMATIC; reason=""
     if base in {"tinyint","smallint","int","integer","serial","smallserial"}:
         target="smallint" if base in {"tinyint","smallint","smallserial"} else "integer"
-        if base=="tinyint" and length==1: target="boolean"; reason="MySQL TINYINT(1) is conventionally boolean; verify source values."
+        if base=="tinyint" and (length==1 or re.search(r"\\(1\\)",raw)): target="boolean"; reason="MySQL TINYINT(1) is conventionally boolean; verify source values."
         if unsigned and base in {"tinyint","smallint","int","integer"}:
             target={"tinyint":"smallint","smallint":"integer","int":"bigint","integer":"bigint"}[base]
             safety=MappingSafety.WARNING; reason="Unsigned source range requires validation against the wider target type."
