@@ -133,6 +133,11 @@ def record_committed_batch(
             logical_bytes=0,
         )
         db.add(table_metric)
+        # SessionLocal disables autoflush. Without an explicit flush, the next
+        # batch's query cannot see this pending row and creates another metric
+        # with the same unique run_table_id. Flush only this first row; later
+        # batches in the grouped metadata transaction will then load and update it.
+        db.flush()
     else:
         _initialize_counters(table_metric, _TABLE_COUNTER_FIELDS)
 
