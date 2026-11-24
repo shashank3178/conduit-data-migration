@@ -451,3 +451,22 @@ def test_migration_writer_count_is_bounded_and_invalid_values_fall_back(monkeypa
     monkeypatch.setenv("CONDUIT_MIGRATION_WRITERS", "not-a-number")
     assert execution._migration_writer_count() == 2
 
+def test_copy_adaptation_streams_rows_without_flattening_the_batch():
+    rows = [(1, "first"), (2, "second")]
+    adapted = execution._iter_adapted_write_rows(
+        rows, ["id", "value"], {"id": "integer", "value": "text"}
+    )
+    assert iter(adapted) is adapted
+    assert list(adapted) == rows
+
+
+def test_copy_adaptation_reports_row_width_mismatch():
+    try:
+        list(execution._iter_adapted_write_rows(
+            [(1,)], ["id", "value"], {"id": "integer", "value": "text"}
+        ))
+    except ValueError as exc:
+        assert "Batch row 0" in str(exc)
+    else:
+        raise AssertionError("A malformed row must fail before COPY")
+
