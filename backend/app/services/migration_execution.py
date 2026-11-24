@@ -253,7 +253,10 @@ def _write_batch(
 
     # COPY is the default bulk path. Keep VALUES as a diagnostic rollback
     # switch for environments where COPY privileges are intentionally absent.
-    if os.getenv("CONDUIT_WRITE_ENGINE", "COPY").strip().upper() == "COPY":
+    if (
+        os.getenv("CONDUIT_WRITE_ENGINE", "COPY").strip().upper() == "COPY"
+        and isinstance(destination, psycopg.Connection)
+    ):
         return write_copy_batch(
             destination,
             table,
