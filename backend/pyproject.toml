@@ -12,6 +12,11 @@ dependencies = [
   "python-dotenv>=1.0,<2",
 ]
 
+[project.optional-dependencies]
+mysql = ["mysql-connector-python>=8.0,<10"]
+oracle = ["oracledb>=2.0,<5"]
+discovery = ["mysql-connector-python>=8.0,<10", "oracledb>=2.0,<5"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
