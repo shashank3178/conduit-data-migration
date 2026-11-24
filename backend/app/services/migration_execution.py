@@ -26,7 +26,6 @@ from app.models.migration_run import (
     MigrationRunTable,
 )
 from app.services.connection_service import decrypt_password
-from app.services.postgres_copy_writer import write_copy_batch
 from app.services.migration_metrics_service import (
     ensure_run_metric,
     finish_run_metric,
@@ -36,6 +35,7 @@ from app.services.migration_metrics_service import (
     record_database_snapshot,
     record_table_storage_snapshot,
 )
+from app.services.postgres_copy_writer import write_copy_batch
 
 
 logger = logging.getLogger(__name__)

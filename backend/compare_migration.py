@@ -24,17 +24,14 @@ QUERY = """
 
 with (
     psycopg.connect(**SOURCE) as source_conn,
-    psycopg.connect(**DESTINATION) as destination_conn,
+    psycopg.connect(**DESTINATION) as destination_conn,source_conn.cursor() as source_cursor,
+    destination_conn.cursor() as destination_cursor,
 ):
-    with (
-        source_conn.cursor() as source_cursor,
-        destination_conn.cursor() as destination_cursor,
-    ):
-        source_cursor.execute(QUERY)
-        destination_cursor.execute(QUERY)
+    source_cursor.execute(QUERY)
+    destination_cursor.execute(QUERY)
 
-        source_rows = source_cursor.fetchall()
-        destination_rows = destination_cursor.fetchall()
+    source_rows = source_cursor.fetchall()
+    destination_rows = destination_cursor.fetchall()
 
 source = dict(source_rows)
 destination = dict(destination_rows)
