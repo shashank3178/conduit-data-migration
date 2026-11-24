@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 
 const API = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000").replace(/\/(api\/v1|api)\/?$/, "");
-type Endpoint = { engine: string; host: string; port: number; database: string; username: string; password: string; tls: boolean };
+type Endpoint = { engine: string; host: string; port: number; database: string; username: string; password: string; tls: boolean; sslmode: string; connect_timeout: number; hostaddr: string; application_name: string; target_session_attrs: string; options: string };
 type Table = { schema_name: string; table_name: string; estimated_rows: number | null; estimated_bytes: number | null; columns: { name: string; native_type: string; nullable: boolean }[]; keys: { name: string; columns: string[]; primary: boolean }[] };
 type Inventory = { tables: Table[]; capabilities: { name: string; status: string; reason: string }[]; warnings: string[]; estimate: { estimated_rows: number; estimated_bytes: number; confidence: string; column_count: number; estimated_duration_seconds: number | null }; table_count: number };
 type Job = { id: string; status: string; stage: string; completed_tables: number; total_tables: number; rows: number; bytes: number; results: { table: string; rows: number; bytes: number; status: string }[]; error?: string; note?: string };
 
-const blank = (): Endpoint => ({ engine: "postgresql", host: "localhost", port: 5432, database: "", username: "", password: "", tls: false });
+const blank = (): Endpoint => ({ engine: "postgresql", host: "localhost", port: 5432, database: "", username: "", password: "", tls: true, sslmode: "require", connect_timeout: 10, hostaddr: "", application_name: "snowbridge", target_session_attrs: "any", options: "" });
 const fmt = (n: number | null | undefined) => n == null ? "—" : n.toLocaleString();
 const bytes = (n: number | null | undefined) => {
   if (n == null) return "—";
@@ -30,7 +30,26 @@ function EndpointForm({ title, value, onChange }: { title: string; value: Endpoi
       <label>Username<input value={value.username} onChange={e => set("username", e.target.value)} placeholder="db_user" /></label>
       <label className="wide">Password<input type="password" autoComplete="new-password" value={value.password} onChange={e => set("password", e.target.value)} placeholder="Password is sent only to the local API" /></label>
     </div>
-    <label className="toggle"><input type="checkbox" checked={value.tls} onChange={e => set("tls", e.target.checked)} /> Require TLS</label>
+    {value.engine === "postgresql" && <div className="advanced-connection">
+      <div className="advanced-heading"><strong>PostgreSQL connection parameters</strong><span>SSL, network binding and libpq options</span></div>
+      <div className="field-grid">
+        <label>SSL mode<select value={value.sslmode} onChange={e => { set("sslmode", e.target.value); set("tls", e.target.value !== "disable"); }}>
+          <option value="require">require · encrypted (managed DB default)</option>
+          <option value="verify-full">verify-full · verify CA and hostname</option>
+          <option value="verify-ca">verify-ca · verify certificate authority</option>
+          <option value="prefer">prefer · use SSL when available</option>
+          <option value="disable">disable · no TLS</option>
+        </select></label>
+        <label>Connect timeout (seconds)<input type="number" min="1" max="300" value={value.connect_timeout} onChange={e => set("connect_timeout", Number(e.target.value))} /></label>
+        <label>Host address / bind target<input value={value.hostaddr} onChange={e => set("hostaddr", e.target.value)} placeholder="Optional IP address (hostaddr)" /></label>
+        <label>Application name<input value={value.application_name} onChange={e => set("application_name", e.target.value)} placeholder="snowbridge" /></label>
+        <label>Target session attributes<select value={value.target_session_attrs} onChange={e => set("target_session_attrs", e.target.value)}>
+          <option value="any">any</option><option value="read-write">read-write</option><option value="read-only">read-only</option><option value="primary">primary</option><option value="standby">standby</option><option value="prefer-standby">prefer-standby</option>
+        </select></label>
+        <label className="wide">Additional libpq options<input value={value.options} onChange={e => set("options", e.target.value)} placeholder="-c statement_timeout=60000" /></label>
+      </div>
+      <p className="field-help">SSL mode and advanced values are passed to libpq/psycopg for test, discovery and migration. Leave host address empty unless your network requires a specific IP.</p>
+    </div>}
   </section>;
 }
 
