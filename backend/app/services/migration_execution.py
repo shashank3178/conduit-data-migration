@@ -1,16 +1,16 @@
 """Durable keyset-paginated PostgreSQL migration execution."""
 import logging
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor
 import math
 import os
 import sys
 import time
-from types import SimpleNamespace
 import uuid
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from datetime import time as datetime_time
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID as PyUUID
 from zoneinfo import ZoneInfo
 
@@ -39,7 +39,6 @@ from app.services.migration_metrics_service import (
     record_table_storage_snapshot,
 )
 from app.services.postgres_copy_writer import write_copy_batch
-
 
 logger = logging.getLogger(__name__)
 
