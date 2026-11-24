@@ -1,7 +1,6 @@
 """Idempotent migration metrics and PostgreSQL storage measurements."""
 import hashlib
 import json
-import sys
 import time
 from datetime import UTC, datetime
 
@@ -124,10 +123,23 @@ def record_committed_batch(
         if logical_payload_size is None
         else logical_payload_size
     )
-    sequence = (
-        db.query(func.coalesce(func.max(MigrationBatchMetric.sequence), 0))
-        .filter_by(run_table_id=progress.id).scalar() or 0
-    ) + 1
+    table_metric = db.query(MigrationTableMetric).filter_by(run_table_id=progress.id).one_or_none()
+    if table_metric is None:
+        table_metric = MigrationTableMetric(
+            run_id=run.id,
+            run_table_id=progress.id,
+            rows_fetched=0,
+            rows_committed=0,
+            batches_committed=0,
+            logical_bytes=0,
+        )
+        db.add(table_metric)
+    else:
+        _initialize_counters(table_metric, _TABLE_COUNTER_FIELDS)
+
+    # One ordered coordinator updates a table's metric row, so its committed
+    # batch counter is already the next sequence number. Avoid MAX(sequence).
+    sequence = table_metric.batches_committed + 1
     batch_network_rtt_ms = (
         round(sum(network_rtt_ms.values()) / len(network_rtt_ms), 2)
         if isinstance(network_rtt_ms, dict) and network_rtt_ms else network_rtt_ms
@@ -167,24 +179,6 @@ def record_committed_batch(
     run_metric.rows_per_second = run_metric.rows_committed / seconds if seconds else 0
     run_metric.logical_bytes_per_second = run_metric.logical_bytes / seconds if seconds else 0
 
-    table_metric = db.query(MigrationTableMetric).filter_by(run_table_id=progress.id).one_or_none()
-    if table_metric is None:
-        # SQLAlchemy's mapped_column(default=0) is applied at INSERT/flush time,
-        # not necessarily at object construction. These values are incremented
-        # immediately below, so initialize them explicitly here.
-        table_metric = MigrationTableMetric(
-            run_id=run.id,
-            run_table_id=progress.id,
-            rows_fetched=0,
-            rows_committed=0,
-            batches_committed=0,
-            logical_bytes=0,
-        )
-        db.add(table_metric)
-    else:
-        # Defensive handling for legacy rows created before counters were
-        # constrained/defaulted correctly, or databases with schema drift.
-        _initialize_counters(table_metric, _TABLE_COUNTER_FIELDS)
     table_metric.rows_fetched += len(rows)
     table_metric.rows_committed += committed
     table_metric.batches_committed += 1
