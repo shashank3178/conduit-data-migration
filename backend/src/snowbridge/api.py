@@ -20,6 +20,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from snowbridge.adapters.postgresql import PostgresAdapter, PostgresEndpoint
+from snowbridge.connection_manager import ConnectionManager, ConnectionSpec
+from snowbridge.contracts import SecretReference
 from snowbridge.bulk_copy import copy_binary_table
 from snowbridge.discovery import discover_inventory
 from snowbridge.schema_ddl import apply_postgresql_ddl
@@ -76,8 +78,27 @@ def _dsn(value: ConnectionInput) -> str:
     )
 
 
-def _adapter(value: ConnectionInput) -> PostgresAdapter:
-    return PostgresAdapter(PostgresEndpoint(_dsn(value)))
+class _RequestSecretProvider:
+    """Ephemeral provider; request credentials are never written to disk or logs."""
+    def __init__(self, password: str):
+        self.password = password
+
+    def resolve(self, reference: SecretReference) -> dict[str, str]:
+        return {"password": self.password}
+
+
+def _adapter(value: ConnectionInput):
+    spec = ConnectionSpec(
+        connection_id="request-only",
+        engine=value.engine,
+        host=value.host,
+        database=value.database,
+        username=value.username,
+        secret_ref=SecretReference("ephemeral", "request-only"),
+        port=value.port,
+        tls_required=value.tls,
+    )
+    return ConnectionManager(_RequestSecretProvider(value.password)).create_adapter(spec)
 
 
 def _json(value: Any) -> Any:
@@ -103,14 +124,28 @@ def health() -> dict[str, str]:
 def test_connection(request: DiscoveryRequest) -> dict[str, Any]:
     try:
         adapter = _adapter(request.connection)
+        capabilities = adapter.inspect_capabilities()
         with adapter.connect() as conn:
-            version = conn.execute("SELECT version()").fetchone()[0]
-            database = conn.execute("SELECT current_database()").fetchone()[0]
+            if request.connection.engine.lower() in {"postgres", "postgresql"}:
+                row = conn.execute("SELECT current_database(), version()").fetchone()
+                database, version = row[0], row[1]
+            elif request.connection.engine.lower() == "mysql":
+                cursor = conn.cursor()
+                cursor.execute("SELECT DATABASE(), VERSION()")
+                database, version = cursor.fetchone()
+                cursor.close()
+            else:
+                cursor = conn.cursor()
+                cursor.execute("SELECT SYS_CONTEXT('USERENV','DB_NAME'), version FROM product_component_version WHERE product LIKE 'Oracle Database%'")
+                row = cursor.fetchone()
+                database, version = (row[0], row[1]) if row else (request.connection.database, "Oracle")
+                cursor.close()
         return {
             "connected": True,
-            "engine": "postgresql",
+            "engine": request.connection.engine.lower(),
             "database": database,
             "server_version": version,
+            "capabilities": [_json(c) for c in capabilities],
         }
     except HTTPException:
         raise
@@ -122,7 +157,7 @@ def test_connection(request: DiscoveryRequest) -> dict[str, Any]:
 def discover(request: DiscoveryRequest) -> dict[str, Any]:
     try:
         adapter = _adapter(request.connection)
-        inventory = discover_inventory(adapter, "postgresql", schemas=request.schemas)
+        inventory = discover_inventory(adapter, request.connection.engine, schemas=request.schemas)
         return {
             "engine": inventory.engine,
             "captured_at": inventory.captured_at.isoformat(),
