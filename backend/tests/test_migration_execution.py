@@ -429,11 +429,13 @@ def test_parallel_writer_uses_independent_destination_and_metadata_session(monke
         lambda *_args: (2, 0, 0, 0, []),
     )
 
+    from threading import Lock
+
     result = execution._write_parallel_batch(
         run_id, progress_id, object(),
         SimpleNamespace(destination_schema="public", destination_table="target"),
         ["id"], {}, ["id"], ["id"],
-        [(1,), (2,)], [(1,), (2,)], "INSERT_ONLY",
+        [(1,), (2,)], [(1,), (2,)], "INSERT_ONLY", [], Lock(),
     )
 
     assert result[:5] == (2, 0, 0, 0, [])
