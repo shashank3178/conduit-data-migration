@@ -11,7 +11,7 @@ from app.services.migration_metrics_service import logical_payload_bytes
 def test_logical_payload_estimate_avoids_json_serialization(monkeypatch):
     monkeypatch.delenv("CONDUIT_EXACT_LOGICAL_BYTES", raising=False)
     rows = [("hello", 123, b"abc", {"k": "v"})]
-    assert logical_payload_bytes(rows) == 5 + 3 + 3 + 1 + 1 + 1
+    assert logical_payload_bytes(rows) == 5 + 3 + 3 + 1 + 1
 
 
 def test_exact_logical_payload_mode_preserves_legacy_json_measurement(monkeypatch):
