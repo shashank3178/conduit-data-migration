@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const API = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000").replace(/\/(api\/v1|api)\/?$/, "");
 type Endpoint = { engine: string; host: string; port: number; database: string; username: string; password: string; tls: boolean };
 type Table = { schema_name: string; table_name: string; estimated_rows: number | null; estimated_bytes: number | null; columns: { name: string; native_type: string; nullable: boolean }[]; keys: { name: string; columns: string[]; primary: boolean }[] };
 type Inventory = { tables: Table[]; capabilities: { name: string; status: string; reason: string }[]; warnings: string[]; estimate: { estimated_rows: number; estimated_bytes: number; confidence: string; column_count: number; estimated_duration_seconds: number | null }; table_count: number };
@@ -42,6 +42,8 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [schemas, setSchemas] = useState("");
+  const [saved, setSaved] = useState<{ source?: string; target?: string }>({});
+  const [activeNav, setActiveNav] = useState("overview");
 
   const schemaList = useMemo(() => schemas.split(",").map(s => s.trim()).filter(Boolean), [schemas]);
 
@@ -58,11 +60,21 @@ export default function Home() {
   function connection(endpoint: Endpoint) {
     return { ...endpoint };
   }
-  async function testSource() {
+  async function testEndpoint(endpoint: Endpoint, label: string) {
     setBusy(true); setMessage("");
     try {
-      const result = await call("/api/connections/test", { connection: connection(source), schemas: schemaList.length ? schemaList : null });
-      setMessage("Source connected · " + result.database + " · " + result.server_version);
+      const result = await call("/api/connections/test", { connection: connection(endpoint), schemas: schemaList.length ? schemaList : null });
+      setMessage(label + " connected · " + result.database + " · " + result.server_version);
+    } catch (e) { setMessage((e as Error).message); }
+    finally { setBusy(false); }
+  }
+  async function testSource() { await testEndpoint(source, "Source"); }
+  async function saveEndpoint(endpoint: Endpoint, side: "source" | "target") {
+    setBusy(true); setMessage("");
+    try {
+      const result = await call("/api/connections", { connection: connection(endpoint), name: side === "source" ? "Source database" : "Target database" });
+      setSaved(current => ({ ...current, [side]: result.id }));
+      setMessage((side === "source" ? "Source" : "Target") + " connection added to this API session.");
     } catch (e) { setMessage((e as Error).message); }
     finally { setBusy(false); }
   }
@@ -96,16 +108,16 @@ export default function Home() {
     <aside className="sidebar">
       <div className="brand"><div className="brand-icon">S</div><div><strong>snowbridge</strong><span>DATA MIGRATION</span></div></div>
       <div className="nav-label">WORKSPACE</div>
-      <a className="nav-item active"><span>◫</span> Overview</a>
-      <a className="nav-item"><span>⌘</span> Connections</a>
-      <a className="nav-item"><span>▤</span> Schema discovery</a>
-      <a className="nav-item"><span>⇄</span> Migration runs</a>
-      <a className="nav-item"><span>◷</span> Reconciliation</a>
+      <a href="#overview" onClick={() => setActiveNav("overview")} className={"nav-item " + (activeNav === "overview" ? "active" : "")}><span>◫</span> Overview</a>
+      <a href="#connections" onClick={() => setActiveNav("connections")} className={"nav-item " + (activeNav === "connections" ? "active" : "")}><span>⌘</span> Connections</a>
+      <a href="#discovery" onClick={() => setActiveNav("discovery")} className={"nav-item " + (activeNav === "discovery" ? "active" : "")}><span>▤</span> Schema discovery</a>
+      <a href="#execution" onClick={() => setActiveNav("execution")} className={"nav-item " + (activeNav === "execution" ? "active" : "")}><span>⇄</span> Migration runs</a>
+      <a href="#reconciliation" onClick={() => setActiveNav("reconciliation")} className={"nav-item " + (activeNav === "reconciliation" ? "active" : "")}><span>◷</span> Reconciliation</a>
       <div className="sidebar-bottom"><div className="status-dot" /> Local development environment<br /><small>API · {API}</small></div>
     </aside>
     <section className="main">
       <header className="topbar"><div><span className="crumb">Workspace /</span> Overview</div><div className="top-right"><span className="live-dot" /> SYSTEM ONLINE <span className="avatar">SB</span></div></header>
-      <div className="content">
+      <div className="content" id="overview">
         <div className="hero"><div><div className="eyebrow">MIGRATION CONTROL PLANE</div><h1>Move data with <em>confidence.</em></h1><p>Discover database structure, understand migration scope, and run a consistent PostgreSQL snapshot transfer.</p></div><div className="hero-chip"><span className="live-dot" /> ENGINE STATUS <b>READY</b></div></div>
         <div className="metrics">
           <div className="metric"><span>DISCOVERED TABLES</span><strong>{inventory ? fmt(inventory.table_count) : "—"}</strong><small>Source catalog inventory</small></div>
@@ -113,20 +125,28 @@ export default function Home() {
           <div className="metric"><span>ESTIMATED DATA</span><strong>{inventory ? bytes(inventory.estimate.estimated_bytes) : "—"}</strong><small>Before target overhead</small></div>
           <div className="metric"><span>MIGRATION STATUS</span><strong className="status-text">{job?.status?.toUpperCase() || "IDLE"}</strong><small>{job?.stage || "No active migration"}</small></div>
         </div>
-        <div className="section-title"><div><span className="eyebrow">01 / CONFIGURE</span><h2>Connect your databases</h2></div><span className="muted">Credentials are not saved by this demo UI</span></div>
+        <div className="section-title" id="connections"><div><span className="eyebrow">01 / CONFIGURE</span><h2>Connect your databases</h2></div><span className="muted">Credentials are not saved by this demo UI</span></div>
         <div className="connection-grid">
           <EndpointForm title="Source database" value={source} onChange={setSource} />
           <EndpointForm title="Target database" value={target} onChange={setTarget} />
         </div>
         <div className="schema-filter panel"><div><strong>Schema scope</strong><p>Optional comma-separated schemas. Leave empty to discover all accessible schemas.</p></div><input value={schemas} onChange={e => setSchemas(e.target.value)} placeholder="public, sales, analytics" /></div>
+        <div className="connection-save-row">
+          <span className="saved-label">{saved.source ? "✓ Source added to session" : "Source not added"} · {saved.target ? "✓ Target added to session" : "Target not added"}</span>
+          <div className="save-actions">
+            <button className="button secondary" disabled={busy || !source.database || !source.username || !source.password} onClick={() => saveEndpoint(source, "source")}>＋ Add source</button>
+            <button className="button secondary" disabled={busy || !target.database || !target.username || !target.password} onClick={() => saveEndpoint(target, "target")}>＋ Add target</button>
+          </div>
+        </div>
         <div className="actions">
           <button className="button secondary" disabled={busy} onClick={testSource}>Test source</button>
+          <button className="button secondary" disabled={busy} onClick={() => testEndpoint(target, "Target")}>Test target</button>
           <button className="button secondary" disabled={busy} onClick={discover}>Discover schema</button>
           <button className="button primary" disabled={busy || !canRun} onClick={start}>⇄ &nbsp; Run snapshot migration</button>
         </div>
         {message && <div className="notice">{message}</div>}
         {inventory && <>
-          <div className="section-title"><div><span className="eyebrow">02 / DISCOVERY</span><h2>Schema inventory</h2></div><span className={"confidence " + inventory.estimate.confidence}>{inventory.estimate.confidence} confidence</span></div>
+          <div className="section-title" id="discovery"><div><span className="eyebrow">02 / DISCOVERY</span><h2>Schema inventory</h2></div><span className={"confidence " + inventory.estimate.confidence}>{inventory.estimate.confidence} confidence</span></div>
           <div className="panel table-panel"><div className="table-head"><div><strong>Discovered objects</strong><p>{inventory.table_count} base tables · {inventory.estimate.column_count} columns</p></div><span className="tag">POSTGRESQL</span></div>
             <div className="table-scroll"><table><thead><tr><th>TABLE</th><th>COLUMNS</th><th>EST. ROWS</th><th>EST. SIZE</th><th>KEYS</th></tr></thead><tbody>
               {inventory.tables.map(t => <tr key={t.schema_name + "." + t.table_name}><td><b>{t.schema_name}.{t.table_name}</b><small>{t.columns.slice(0, 4).map(c => c.name + " · " + c.native_type).join("  /  ")}</small></td><td>{t.columns.length}</td><td>{fmt(t.estimated_rows)}</td><td>{bytes(t.estimated_bytes)}</td><td>{t.keys.map(k => k.primary ? "PK" : "UK").join(", ") || "—"}</td></tr>)}
@@ -135,13 +155,14 @@ export default function Home() {
           <div className="capabilities">{inventory.capabilities.map(c => <div className="capability" key={c.name}><span className={c.status === "available" ? "check" : "warn"}>{c.status === "available" ? "✓" : "!"}</span><div><b>{c.name.replaceAll("_", " ")}</b><small>{c.reason}</small></div><span className="cap-status">{c.status.replaceAll("_", " ")}</span></div>)}</div>
           {inventory.warnings.length > 0 && <div className="notice warning"><b>Discovery notes</b>{inventory.warnings.map((w, i) => <p key={i}>{w}</p>)}</div>}
         </>}
-        {job && <><div className="section-title"><div><span className="eyebrow">03 / EXECUTION</span><h2>Migration activity</h2></div><span className={"confidence " + (job.status === "completed" ? "high" : job.status === "failed" ? "low" : "medium")}>{job.status}</span></div>
+        {job && <><div className="section-title" id="execution"><div><span className="eyebrow">03 / EXECUTION</span><h2>Migration activity</h2></div><span className={"confidence " + (job.status === "completed" ? "high" : job.status === "failed" ? "low" : "medium")}>{job.status}</span></div>
           <div className="panel progress-panel"><div className="progress-title"><div><b>{job.stage}</b><p>{job.completed_tables} of {job.total_tables} tables committed</p></div><strong>{job.total_tables ? Math.round(job.completed_tables / job.total_tables * 100) : 0}%</strong></div><div className="progress"><span style={{ width: (job.total_tables ? job.completed_tables / job.total_tables * 100 : 0) + "%" }} /></div><div className="progress-stats"><span>{fmt(job.rows)} rows committed</span><span>{bytes(job.bytes)} transferred</span></div>
             {job.error && <div className="notice error">{job.error}</div>}
             {job.results.length > 0 && <div className="table-scroll"><table><thead><tr><th>TABLE</th><th>ROWS</th><th>TRANSFERRED</th><th>STATUS</th></tr></thead><tbody>{job.results.map(r => <tr key={r.table}><td>{r.table}</td><td>{fmt(r.rows)}</td><td>{bytes(r.bytes)}</td><td><span className="success-text">{r.status}</span></td></tr>)}</tbody></table></div>}
             {job.note && <p className="footnote">{job.note}</p>}
           </div>
         </>}
+        <div className="panel roadmap-panel" id="reconciliation"><div><span className="eyebrow">04 / DATA QUALITY</span><h2>Reconciliation</h2><p>Automated row-count comparison, checksums, key-level diffs and repair workflows are not yet enabled in this snapshot build. This section is marked unavailable rather than presenting a false validation result.</p></div><span className="confidence medium">NOT IMPLEMENTED</span></div>
         <footer>SNOWBRIDGE V0.3 · SNAPSHOT PIPELINE · LOCAL DEMONSTRATION BUILD</footer>
       </div>
     </section>
