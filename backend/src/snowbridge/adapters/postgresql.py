@@ -86,7 +86,7 @@ class PostgresAdapter:
             if include_schemas:
                 rows = conn.execute(
                     """
-                    SELECT n.nspname, c.relname, c.reltuples::bigint, c.relkind = 'p'
+                    SELECT n.nspname, c.relname, c.reltuples::bigint, c.relkind = 'p', pg_total_relation_size(c.oid)
                     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
                     WHERE c.relkind IN ('r','p') AND n.nspname = ANY(%s)
                     ORDER BY n.nspname, c.relname
@@ -104,7 +104,7 @@ class PostgresAdapter:
                     """
                 ).fetchall()
             result: list[TableSchema] = []
-            for schema_name, table_name, estimate, partitioned in rows:
+            for schema_name, table_name, estimate, partitioned, estimated_bytes in rows:
                 cols = conn.execute(
                     """
                     SELECT a.attname, a.attnum, format_type(a.atttypid,a.atttypmod),
@@ -161,7 +161,9 @@ class PostgresAdapter:
                              for k in key_rows)
                 result.append(TableSchema(schema_name, table_name, columns, keys,
                                           max(0, int(estimate)) if estimate is not None else None,
-                                          bool(partitioned)))
+                                          bool(partitioned),
+                                          estimated_bytes=max(0, int(estimated_bytes)) if estimated_bytes is not None else None,
+                                          storage_engine="postgresql"))
             return result
 
 
