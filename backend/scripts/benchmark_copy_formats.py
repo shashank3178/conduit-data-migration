@@ -25,6 +25,8 @@ def benchmark(connection, row_count: int, repeats: int, copy_format: str) -> lis
         connection.execute("TRUNCATE conduit_copy_benchmark")
         started = time.perf_counter()
         with connection.cursor().copy(query) as copy:
+            if copy_format == "binary":
+                copy.set_types(["int8", "text"])
             for row_id in range(row_count):
                 copy.write_row((row_id, f"payload-{row_id:012d}-" + ("x" * 96)))
         elapsed = time.perf_counter() - started
