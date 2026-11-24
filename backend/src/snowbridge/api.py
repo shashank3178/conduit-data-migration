@@ -229,11 +229,13 @@ def _execute_migration(job_id: str, request: MigrationRequest) -> None:
         with target.connect() as target_conn:
             ddl_plan = apply_postgresql_ddl(target_conn, inventory.tables)
             for schema_name, table_name, _columns in ddl_plan.load_columns:
-                count = target_conn.execute(
-                    'SELECT count(*) FROM "' + schema_name.replace('"', '""') +
-                    '"."' + table_name.replace('"', '""') + '"'
+                from psycopg import sql
+                has_rows = target_conn.execute(
+                    sql.SQL("SELECT EXISTS (SELECT 1 FROM {} LIMIT 1)").format(
+                        sql.Identifier(schema_name, table_name)
+                    )
                 ).fetchone()[0]
-                if count:
+                if has_rows:
                     raise RuntimeError(
                         f"Target table {schema_name}.{table_name} is not empty. "
                         "The demo pipeline refuses to append duplicate data or truncate existing rows."
